@@ -3,9 +3,10 @@ import { useReducer, useState, useEffect, useCallback } from "react";
 import Header from "./Header";
 import ChatContainer from "./ChatContainer";
 import ChatInput from "./ChatInput";
-import { Button, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, makeStyles, tokens, Switch } from "@fluentui/react-components";
 import { ArrowReset24Regular } from "@fluentui/react-icons";
-import { insertText } from "../taskpane";
+import { createSlide } from "../taskpane";
+import { useSlideDetection } from "../hooks/useSlideDetection";
 import { questions } from "../questions";
 import type { ConversationState, ConversationStep, ChatMessage, ChatOption, GeneratedSlide, Mode, Tone } from "../types";
 
@@ -29,6 +30,17 @@ const useStyles = makeStyles({
     paddingBottom: "8px",
     paddingLeft: "12px",
     paddingRight: "12px",
+  },
+  slideToggleRow: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: "8px",
+    paddingTop: "8px",
+    paddingBottom: "8px",
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
   },
 });
 
@@ -129,6 +141,14 @@ const App: React.FC<AppProps> = (props: AppProps) => {
   const [isTyping, setIsTyping] = useState(false);
   const [slides, setSlides] = useState<GeneratedSlide[]>([]);
   const [selectedValues, setSelectedValues] = useState<Record<string, string>>({});
+
+  // Slide detection toggle
+  const [showSlideNumber, setShowSlideNumber] = useState<boolean>(false);
+
+  // Use slide detection hook (only active when toggle is enabled)
+  const { currentSlide, totalSlides } = useSlideDetection({
+    enabled: showSlideNumber,
+  });
 
   // Show initial greeting on mount
   useEffect(() => {
@@ -295,18 +315,13 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     }, 100);
   }, []);
 
-  const formatSlideText = (slide: GeneratedSlide): string => {
-    const bullets = slide.bullets.map((b) => `\u2022 ${b}`).join("\n");
-    return `${slide.title}\n\n${bullets}`;
-  };
-
   const handleInsertSlide = async (slide: GeneratedSlide) => {
-    await insertText(formatSlideText(slide));
+    await createSlide({ title: slide.title, bullets: slide.bullets });
   };
 
   const handleInsertAll = async () => {
     for (const slide of slides) {
-      await insertText(formatSlideText(slide));
+      await createSlide({ title: slide.title, bullets: slide.bullets });
     }
   };
 
@@ -314,7 +329,19 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
   return (
     <div className={styles.root}>
-      <Header logo="assets/logo-filled.png" title={props.title} />
+      <Header
+        logo="assets/logo-filled.png"
+        title={props.title}
+        currentSlide={currentSlide}
+        totalSlides={totalSlides}
+      />
+      <div className={styles.slideToggleRow}>
+        <Switch
+          checked={showSlideNumber}
+          onChange={(_ev, data) => setShowSlideNumber(data.checked)}
+          label="Track slide"
+        />
+      </div>
       <ChatContainer
         messages={state.messages}
         onOptionSelect={handleOptionSelect}

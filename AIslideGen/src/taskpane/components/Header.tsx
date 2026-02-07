@@ -4,33 +4,47 @@ import { Image, tokens, makeStyles } from "@fluentui/react-components";
 export interface HeaderProps {
   title: string;
   logo: string;
-  message: string;
 }
 
 const useStyles = makeStyles({
-  welcome__header: {
+  header: {
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
-    paddingBottom: "30px",
-    paddingTop: "100px",
+    gap: "12px",
+    paddingTop: "16px",
+    paddingBottom: "12px",
+    paddingLeft: "20px",
+    paddingRight: "20px",
     backgroundColor: tokens.colorNeutralBackground3,
   },
-  message: {
-    fontSize: tokens.fontSizeHero900,
-    fontWeight: tokens.fontWeightRegular,
-    fontColor: tokens.colorNeutralBackgroundStatic,
+  textGroup: {
+    display: "flex",
+    flexDirection: "column",
+  },
+  title: {
+    fontSize: tokens.fontSizeBase500,
+    fontWeight: tokens.fontWeightSemibold,
+    margin: "0",
+    lineHeight: tokens.lineHeightBase500,
+  },
+  subtitle: {
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorNeutralForeground3,
+    margin: "0",
   },
 });
 
 const Header: React.FC<HeaderProps> = (props: HeaderProps) => {
-  const { title, logo, message } = props;
+  const { title, logo } = props;
   const styles = useStyles();
 
   return (
-    <section className={styles.welcome__header}>
-      <Image width="90" height="90" src={logo} alt={title} />
-      <h1 className={styles.message}>{message}</h1>
+    <section className={styles.header}>
+      <Image width="36" height="36" src={logo} alt={title} />
+      <div className={styles.textGroup}>
+        <h1 className={styles.title}>Spark</h1>
+        <p className={styles.subtitle}>Ideas to slides, instantly</p>
+      </div>
     </section>
   );
 };

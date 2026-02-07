@@ -1,0 +1,101 @@
+import * as React from "react";
+import { Button, Card, CardHeader, Text, makeStyles, tokens } from "@fluentui/react-components";
+import { SlideAdd24Regular, ArrowDownload24Regular } from "@fluentui/react-icons";
+
+export interface GeneratedSlide {
+  title: string;
+  bullets: string[];
+}
+
+interface OutputPreviewProps {
+  slides: GeneratedSlide[];
+  onInsertSlide: (slide: GeneratedSlide) => void;
+  onInsertAll: () => void;
+}
+
+const useStyles = makeStyles({
+  wrapper: {
+    paddingLeft: "16px",
+    paddingRight: "16px",
+    paddingTop: "16px",
+    paddingBottom: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  heading: {
+    fontSize: tokens.fontSizeBase400,
+    fontWeight: tokens.fontWeightSemibold,
+  },
+  card: {
+    padding: "12px",
+  },
+  bulletList: {
+    margin: "0",
+    paddingLeft: "20px",
+  },
+  bullet: {
+    fontSize: tokens.fontSizeBase300,
+    paddingBottom: "4px",
+  },
+  cardActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    paddingTop: "8px",
+  },
+});
+
+const OutputPreview: React.FC<OutputPreviewProps> = (props: OutputPreviewProps) => {
+  const { slides, onInsertSlide, onInsertAll } = props;
+  const styles = useStyles();
+
+  if (slides.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={styles.wrapper}>
+      <div className={styles.headerRow}>
+        <Text className={styles.heading}>Generated Slides ({slides.length})</Text>
+        <Button appearance="primary" icon={<ArrowDownload24Regular />} onClick={onInsertAll} size="small">
+          Insert All
+        </Button>
+      </div>
+      {slides.map((slide, index) => (
+        <Card key={index} className={styles.card}>
+          <CardHeader
+            header={
+              <Text weight="semibold">
+                {index + 1}. {slide.title}
+              </Text>
+            }
+          />
+          <ul className={styles.bulletList}>
+            {slide.bullets.map((bullet, bIndex) => (
+              <li key={bIndex} className={styles.bullet}>
+                {bullet}
+              </li>
+            ))}
+          </ul>
+          <div className={styles.cardActions}>
+            <Button
+              appearance="subtle"
+              icon={<SlideAdd24Regular />}
+              onClick={() => onInsertSlide(slide)}
+              size="small"
+            >
+              Insert
+            </Button>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+};
+
+export default OutputPreview;

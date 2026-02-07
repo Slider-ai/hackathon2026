@@ -709,6 +709,25 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     [handleSend]
   );
 
+  const handleFileUpload = useCallback(
+    async (fileName: string, extractedText: string) => {
+      if (state.step === "initial") {
+        const userMsg = makeUserMessage(`Uploaded: ${fileName}`);
+        dispatch({ type: "ADD_MESSAGE", message: userMsg });
+        dispatch({ type: "SET_USER_PROMPT", prompt: extractedText });
+        await advanceConversation("initial");
+      } else if (state.step === "anything_else") {
+        const userMsg = makeUserMessage(`Uploaded: ${fileName}`);
+        dispatch({ type: "ADD_MESSAGE", message: userMsg });
+        dispatch({ type: "SET_ADDITIONAL_CONTEXT", text: extractedText });
+        dispatch({ type: "SET_STEP", step: "generating" });
+        await delay(300);
+        await generateSlides();
+      }
+    },
+    [state.step, advanceConversation, generateSlides]
+  );
+
   const handleReset = useCallback(() => {
     handleNewConversation();
   }, [handleNewConversation]);
@@ -758,6 +777,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       )}
       <ChatInput
         onSend={(text) => handleSend(text)}
+        onFileUpload={handleFileUpload}
         disabled={inputDisabled}
         placeholder={getPlaceholder(state.step)}
         currentSlide={currentSlide}

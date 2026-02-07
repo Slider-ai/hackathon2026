@@ -18,6 +18,7 @@ import {
   Image24Regular,
   DocumentBulletList24Regular,
   SlideLayout24Regular,
+  TextBulletListSquare24Regular,
 } from "@fluentui/react-icons";
 
 interface ChatInputProps {
@@ -26,6 +27,7 @@ interface ChatInputProps {
   placeholder: string;
   currentSlide?: number | null;
   totalSlides?: number | null;
+  onSummarize?: () => void;
 }
 
 const useStyles = makeStyles({
@@ -72,6 +74,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   placeholder,
   currentSlide,
   totalSlides,
+  onSummarize,
 }) => {
   const styles = useStyles();
   const [text, setText] = useState("");
@@ -107,6 +110,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           </MenuTrigger>
           <MenuPopover>
             <MenuList>
+              <MenuItem icon={<TextBulletListSquare24Regular />} onClick={onSummarize}>Summarize</MenuItem>
               <MenuItem icon={<Image24Regular />}>Add Image</MenuItem>
               <MenuItem icon={<DocumentBulletList24Regular />}>Use Template</MenuItem>
               <MenuItem icon={<SlideLayout24Regular />}>Change Layout</MenuItem>

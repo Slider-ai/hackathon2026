@@ -388,7 +388,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     setSlides([]);
     setSelectedValues({});
     setIsTyping(false);
-    setIsWebSearchMode(false);
+    // Keep isWebSearchMode state - don't reset it
     setTimeout(() => {
       const greeting = makeAssistantMessage(
         "Hi! I'm Spark. Tell me what you'd like to create a presentation about."
@@ -639,7 +639,8 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     const intent = parseUserIntent(query);
     const slideCount = intent.slideCount !== undefined ? intent.slideCount : 3;
     const tone = intent.tone || "professional";
-    const mode = intent.mode || "research";
+    // Always use research mode for web search to ensure sources are cited
+    const mode = "research";
     const topic = intent.topic || query;
 
     // Determine if web search is actually needed based on query context
@@ -650,12 +651,13 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       );
 
     try {
+      // Single professional message at the start
+      const startMsg = makeAssistantMessage("Generating your slides...");
+      dispatch({ type: "ADD_MESSAGE", message: startMsg });
+
       let searchContext = "";
 
       if (needsWebSearch) {
-        const searchMsg = makeAssistantMessage(`Searching for "${topic}"...`);
-        dispatch({ type: "ADD_MESSAGE", message: searchMsg });
-
         const response = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -673,27 +675,12 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         const data = await response.json();
         const results: SearchResult[] = data.results || [];
 
-        if (results.length === 0) {
-          const noResultsMsg = makeAssistantMessage(
-            "No results found. Generating slides from general knowledge instead..."
-          );
-          dispatch({ type: "ADD_MESSAGE", message: noResultsMsg });
-        } else {
+        if (results.length > 0) {
           // Format search results as context
           searchContext = results
             .map((r, i) => `Source ${i + 1} (${r.source}):\n${r.title}\n${r.snippet}`)
             .join("\n\n");
-
-          const foundMsg = makeAssistantMessage(
-            `Found ${results.length} sources. Creating ${slideCount} slides with research...`
-          );
-          dispatch({ type: "ADD_MESSAGE", message: foundMsg });
         }
-      } else {
-        const skipMsg = makeAssistantMessage(
-          `This topic doesn't require web search. Generating ${slideCount} slides from general knowledge...`
-        );
-        dispatch({ type: "ADD_MESSAGE", message: skipMsg });
       }
 
       // Set up state for slide generation
@@ -710,11 +697,6 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       await delay(300);
 
       // Generate slides
-      const genMsg = makeAssistantMessage(
-        searchContext ? `Creating ${slideCount} slides from research...` : `Creating ${slideCount} slides...`
-      );
-      dispatch({ type: "ADD_MESSAGE", message: genMsg });
-
       const genResponse = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -733,6 +715,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       }
 
       const genData = await genResponse.json();
+      console.log("Generated slides from API:", genData.slides);
       setSlides(genData.slides || []);
       dispatch({ type: "SET_STEP", step: "complete" });
 
@@ -874,6 +857,40 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           break;
         }
 
+        case "complete": {
+          // User wants to create new slides after previous ones were generated
+          // Reset state but keep existing slides visible until new ones are generated
+          dispatch({ type: "RESET" });
+          setSelectedValues({});
+          setIsWebSearchMode(false);
+
+          // Parse the new request
+          const intent = parseUserIntent(text);
+          dispatch({ type: "SET_USER_PROMPT", prompt: intent.topic || text });
+
+          if (intent.slideCount !== undefined) {
+            dispatch({ type: "SET_SLIDE_COUNT", count: intent.slideCount });
+          }
+          if (intent.mode) {
+            dispatch({ type: "SET_MODE", mode: intent.mode });
+          }
+          if (intent.tone) {
+            dispatch({ type: "SET_TONE", tone: intent.tone });
+          }
+
+          // If we have all info, generate immediately
+          if (intent.hasAllInfo && intent.slideCount !== undefined && intent.mode && intent.tone) {
+            dispatch({ type: "SET_STEP", step: "generating" });
+            await delay(300);
+            await generateSlides();
+          } else {
+            // Otherwise ask for missing info
+            dispatch({ type: "SET_STEP", step: "mode" });
+            await advanceConversation("initial");
+          }
+          break;
+        }
+
         default:
           break;
       }
@@ -922,12 +939,13 @@ const App: React.FC<AppProps> = (props: AppProps) => {
   }, [handleNewConversation]);
 
   const handleInsertSlide = async (slide: GeneratedSlide) => {
-    await createSlide({ title: slide.title, bullets: slide.bullets });
+    console.log("Inserting slide with sources:", slide.sources);
+    await createSlide({ title: slide.title, bullets: slide.bullets, sources: slide.sources });
   };
 
   const handleInsertAll = async () => {
     for (const slide of slides) {
-      await createSlide({ title: slide.title, bullets: slide.bullets });
+      await createSlide({ title: slide.title, bullets: slide.bullets, sources: slide.sources });
     }
   };
 

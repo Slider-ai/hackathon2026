@@ -4,6 +4,7 @@ export type Tone = "professional" | "casual" | "academic";
 export interface GeneratedSlide {
   title: string;
   bullets: string[];
+  sources?: string[];
 }
 
 export type ChatMessageRole = "assistant" | "user";

@@ -17,15 +17,15 @@ type Mode = "generate" | "summarize" | "compare" | "proscons" | "research";
 
 const systemPrompts: Record<Mode, string> = {
   generate:
-    "You are a presentation expert. Turn the user's rough notes into well-structured, polished presentation slides. Each slide should have a clear title and 3-5 concise bullet points.",
+    "You are a presentation expert. Create slides with specific, valuable information - not generic statements. Each slide must contain concrete facts, actionable insights, or specific examples. Use clear titles and 3-5 concise, informative bullet points. Avoid meta-commentary or process descriptions.",
   summarize:
-    "You are a summarization expert. Condense the user's long text into key-point presentation slides. Extract the most important insights and organize them clearly.",
+    "You are a summarization expert. Extract the most important facts, insights, and takeaways from the content. Focus on specific information, key findings, and concrete details. Avoid generic summaries - be specific and informative.",
   compare:
-    "You are an analysis expert. Create a side-by-side comparison presentation from the user's input. Include an overview slide, detailed breakdown slides, and a recommendation slide.",
+    "You are an analysis expert. Create detailed comparisons with specific differences, concrete examples, and quantifiable metrics where possible. Include factual distinctions, real-world implications, and data-driven insights. Avoid vague comparisons.",
   proscons:
-    "You are a critical thinking expert. Analyze the user's topic and generate balanced pros and cons presentation slides. Include a verdict slide with a nuanced conclusion.",
+    "You are a critical thinking expert. Provide specific, concrete pros and cons with real examples and evidence. Include factual benefits and drawbacks, not generic observations. Support claims with specifics.",
   research:
-    "You are a research expert. Based on the user's topic, generate informative presentation slides covering key findings, data points, trends, and implications.",
+    "You are a research expert. Extract ONLY information that appears in the provided research sources - do NOT use general knowledge. Focus on CURRENT, SPECIFIC events: exact dates (e.g., 'On Feb 5, 2026...'), recent developments, specific people/places, breaking news, statistics with numbers, and concrete events from the sources. You may use shorthand citations like 'According to [source name]...' or 'Reuters reports...' in bullet points. Prioritize the most recent and newsworthy information. Avoid generic background - focus on what's happening NOW based on the sources.",
 };
 
 app.post("/api/generate", async (req, res) => {
@@ -42,10 +42,23 @@ app.post("/api/generate", async (req, res) => {
     return;
   }
 
-  const systemPrompt = `${systemPrompts[mode]}
+  const hasResearchSources = additionalContext?.includes("RESEARCH SOURCES:");
+
+  console.log("Generate request - Mode:", mode, "Has research sources:", hasResearchSources);
+
+  let jsonFormat = `{ "slides": [{ "title": "Slide Title", "bullets": ["Point 1", "Point 2", "Point 3"] }] }`;
+  let citationInstructions = "";
+
+  if (hasResearchSources && mode === "research") {
+    console.log("Including sources in JSON format");
+    jsonFormat = `{ "slides": [{ "title": "Slide Title", "bullets": ["Point 1", "Point 2", "Point 3"], "sources": ["example.com", "news.site.com"] }] }`;
+    citationInstructions = "\n\nIMPORTANT: For each slide that uses information from the research sources, include a 'sources' array with the domain names of the sources used (e.g., ['nytimes.com', 'reuters.com']). Only include domain names, not full URLs. If a slide doesn't use any research sources, omit the 'sources' field or set it to an empty array.";
+  }
+
+  const systemPrompt = `${systemPrompts[mode]}${citationInstructions}
 
 Respond ONLY with valid JSON in this exact format:
-{ "slides": [{ "title": "Slide Title", "bullets": ["Point 1", "Point 2", "Point 3"] }] }
+${jsonFormat}
 
 Generate exactly ${slideCount || 3} slides. Use a ${tone || "professional"} tone. Do not include any text outside the JSON.`;
 
@@ -74,6 +87,7 @@ Generate exactly ${slideCount || 3} slides. Use a ${tone || "professional"} tone
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
+    console.log("Generated slides:", JSON.stringify(parsed, null, 2));
     res.json(parsed);
   } catch (error: unknown) {
     console.error("OpenAI error:", error);

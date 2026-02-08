@@ -1,6 +1,6 @@
 /* global PowerPoint console */
 
-import type { EditInstruction } from "./types";
+import type { EditInstruction, ImageData } from "./types";
 
 export type SlideTheme = "professional" | "casual" | "academic" | "creative" | "minimal";
 
@@ -9,6 +9,12 @@ export interface SlideData {
   bullets: string[];
   sources?: string[];
   theme?: SlideTheme;
+  image?: ImageData;
+  imageLayout?: {
+    position: "left" | "right" | "top" | "bottom" | "center";
+    width: number;
+    height: number;
+  };
 }
 
 interface ThemeStyle {
@@ -87,6 +93,9 @@ const themeStyles: Record<SlideTheme, ThemeStyle> = {
 
 export async function createSlide(slideData: SlideData) {
   try {
+    // Declare image parameters outside PowerPoint.run so they're accessible later
+    let imageInsertParams: { left: number; top: number; width: number; height: number } | undefined;
+
     await PowerPoint.run(async (context) => {
       const presentation = context.presentation;
       const slides = presentation.slides;
@@ -141,12 +150,80 @@ export async function createSlide(slideData: SlideData) {
         accentBar.lineFormat.visible = false;
       }
 
+      // Calculate layout dimensions
+      const slideWidth = 720;
+      const slideHeight = 540;
+      let titleLeft = theme === "minimal" ? 50 : 70;
+      let titleTop = theme === "creative" ? 40 : 50;
+      let titleWidth = 640;
+      let titleHeight = 80;
+      let contentLeft = theme === "minimal" ? 50 : 70;
+      let contentTop = theme === "creative" ? 140 : 150;
+      let contentWidth = 640;
+      let contentHeight = slideData.sources ? 300 : 350;
+
+      // Calculate image layout and adjust text positions if image is provided
+
+      if (slideData.image && slideData.imageLayout) {
+        const layout = slideData.imageLayout;
+        const imgWidth = slideWidth * (layout.width / 100);
+        const imgHeight = slideHeight * (layout.height / 100);
+        let imgLeft: number;
+        let imgTop: number;
+
+        switch (layout.position) {
+          case "left":
+            imgLeft = 30;
+            imgTop = (slideHeight - imgHeight) / 2;
+            // Adjust text boxes to right side
+            titleLeft = imgLeft + imgWidth + 20;
+            titleWidth = slideWidth - titleLeft - 50;
+            contentLeft = imgLeft + imgWidth + 20;
+            contentWidth = slideWidth - contentLeft - 50;
+            break;
+
+          case "right":
+            imgLeft = slideWidth - imgWidth - 30;
+            imgTop = (slideHeight - imgHeight) / 2;
+            // Text stays on left but reduce width
+            titleWidth = imgLeft - titleLeft - 20;
+            contentWidth = imgLeft - contentLeft - 20;
+            break;
+
+          case "top":
+            imgLeft = (slideWidth - imgWidth) / 2;
+            imgTop = 40;
+            // Text boxes move down
+            titleTop = imgTop + imgHeight + 20;
+            contentTop = titleTop + 80;
+            contentHeight = slideHeight - contentTop - (slideData.sources ? 80 : 50);
+            break;
+
+          case "bottom":
+            imgLeft = (slideWidth - imgWidth) / 2;
+            imgTop = slideHeight - imgHeight - 40;
+            // Text stays at top but reduce height
+            contentHeight = imgTop - contentTop - 20;
+            break;
+
+          case "center":
+            imgLeft = (slideWidth - imgWidth) / 2;
+            imgTop = (slideHeight - imgHeight) / 2;
+            // Reduce content area or overlay (for title-only slides)
+            contentHeight = Math.min(contentHeight, 100);
+            break;
+        }
+
+        // Store parameters for image insertion after PowerPoint.run completes
+        imageInsertParams = { left: imgLeft, top: imgTop, width: imgWidth, height: imgHeight };
+      }
+
       // Add title text box (created last so it appears on top)
       const titleBox = newSlide.shapes.addTextBox(slideData.title);
-      titleBox.left = theme === "minimal" ? 50 : 70;
-      titleBox.top = theme === "creative" ? 40 : 50;
-      titleBox.width = 640;
-      titleBox.height = 80;
+      titleBox.left = titleLeft;
+      titleBox.top = titleTop;
+      titleBox.width = titleWidth;
+      titleBox.height = titleHeight;
       titleBox.textFrame.textRange.font.size = style.titleSize;
       titleBox.textFrame.textRange.font.bold = style.titleBold;
       titleBox.textFrame.textRange.font.color = style.titleColor;
@@ -157,11 +234,11 @@ export async function createSlide(slideData: SlideData) {
       const bulletText = slideData.bullets.map(bullet => `• ${bullet}`).join("\n");
       const contentBox = newSlide.shapes.addTextBox(bulletText);
 
-      // Position and size the content box based on theme
-      contentBox.left = theme === "minimal" ? 50 : 70;
-      contentBox.top = theme === "creative" ? 140 : 150;
-      contentBox.width = 640;
-      contentBox.height = slideData.sources ? 300 : 350;
+      // Position and size the content box (using calculated dimensions)
+      contentBox.left = contentLeft;
+      contentBox.top = contentTop;
+      contentBox.width = contentWidth;
+      contentBox.height = contentHeight;
 
       // Style the content box
       contentBox.textFrame.textRange.font.size = style.contentSize;
@@ -188,8 +265,46 @@ export async function createSlide(slideData: SlideData) {
         sourcesBox.lineFormat.visible = false;
       }
 
+      // IMPORTANT: Select the newly created slide so setSelectedDataAsync can insert the image
+      if (slideData.image && imageInsertParams) {
+        newSlide.load("id");
+        await context.sync();
+
+        // Select this slide (required for setSelectedDataAsync to work)
+        presentation.setSelectedSlides([newSlide.id]);
+        await context.sync();
+      }
+
       await context.sync();
     });
+
+    // Insert image after slide creation if image data is provided
+    if (slideData.image && imageInsertParams) {
+      await new Promise<void>((resolve, reject) => {
+        // Office.js Common API requires data URL format: data:{mimeType};base64,{base64String}
+        const imageDataUrl = `data:${slideData.image.mimeType};base64,${slideData.image.base64}`;
+
+        Office.context.document.setSelectedDataAsync(
+          imageDataUrl,
+          {
+            coercionType: Office.CoercionType.Image,
+            imageLeft: imageInsertParams.left,
+            imageTop: imageInsertParams.top,
+            imageWidth: imageInsertParams.width,
+            imageHeight: imageInsertParams.height,
+          },
+          (result) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              console.log("Successfully inserted image at position:", imageInsertParams);
+              resolve();
+            } else {
+              console.error("Failed to insert image:", result.error?.message);
+              reject(new Error(result.error?.message || "Failed to insert image"));
+            }
+          }
+        );
+      });
+    }
   } catch (error) {
     console.log("Error creating slide: " + error);
     throw error;

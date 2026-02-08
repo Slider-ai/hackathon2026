@@ -1,10 +1,23 @@
 export type Mode = "generate" | "summarize" | "compare" | "proscons" | "research";
 export type Tone = "professional" | "casual" | "academic";
 
+export interface ImageReference {
+  image_id: string;
+  role: "primary" | "supporting";
+  alt_text: string;
+}
+
 export interface GeneratedSlide {
   title: string;
   bullets: string[];
   sources?: string[];
+  images?: ImageReference[];      // NEW: References to uploaded images (by ID, not base64)
+  image?: ImageData;              // DEPRECATED: Legacy full image data (for backwards compat)
+  imageLayout?: {                 // AI-determined positioning
+    position: "left" | "right" | "top" | "bottom" | "center";
+    width: number;                // Percentage of slide width (0-100)
+    height: number;               // Percentage of slide height (0-100)
+  };
 }
 
 export type ChatMessageRole = "assistant" | "user";
@@ -52,8 +65,11 @@ export type ConversationStep =
   | "web_search_query"
   | "web_search_results"
   | "web_search_permission"
+  | "image_context"              // NEW: Collect optional text about image
+  | "image_upload_choice"        // NEW: Ask user embed vs analyze
   | "image_analysis"
   | "image_followup"
+  | "file_image_choice"           // NEW: Ask if images from DOCX should be included
   | "editing"
   | "edit_complete";
 
@@ -66,6 +82,8 @@ export interface ConversationState {
   additionalContext: string;
   messages: ChatMessage[];
   image?: ImageData;
+  embedMode?: boolean;  // NEW: Whether to embed image in slides (true) or just analyze (false)
+  extractedImages?: ImageData[];  // NEW: Images extracted from DOCX files
 }
 
 // ── Edit operation types ──

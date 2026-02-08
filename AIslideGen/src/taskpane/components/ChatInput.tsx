@@ -39,7 +39,7 @@ const themeLabels: Record<SlideTheme, string> = {
 
 interface ChatInputProps {
   onSend: (text: string) => void;
-  onFileUpload: (fileName: string, extractedText: string) => void;
+  onFileUpload: (fileName: string, extractedText: string, extractedImages?: ImageData[]) => void;
   onImageUpload: (imageData: ImageData) => void;
   disabled: boolean;
   placeholder: string;
@@ -167,7 +167,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setIsParsingFile(true);
     try {
       const parsed = await parseFile(file);
-      onFileUpload(parsed.fileName, parsed.text);
+      onFileUpload(parsed.fileName, parsed.text, parsed.images);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to parse file.";
       alert(message);

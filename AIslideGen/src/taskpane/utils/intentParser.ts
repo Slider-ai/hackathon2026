@@ -253,6 +253,28 @@ export function isSlideRequest(text: string): boolean {
   return requestPatterns.test(lowerText) || hasSlideCount;
 }
 
+/**
+ * Detects if the user wants to embed an image into slides (vs just analyzing it).
+ * Returns true if they explicitly mention embedding, including, or putting the image in slides.
+ */
+export function wantsToEmbedImage(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  const embedKeywords = /\b(embed|include|put|place|insert|add|attach|with|show)\b.*\b(image|picture|photo|it|this)\b/i;
+  const intoSlides = /\b(into|in|on)\b.*\b(slide|presentation|deck)\b/i;
+
+  // Check for patterns like "embed this", "include the image", "put it in slides"
+  if (embedKeywords.test(lowerText) || intoSlides.test(lowerText)) {
+    return true;
+  }
+
+  // Check for patterns like "with the image", "showing this image"
+  if (/\b(with|showing|displaying)\b.*\b(image|picture|photo|it|this)\b/i.test(lowerText)) {
+    return true;
+  }
+
+  return false;
+}
+
 export interface SummaryIntent {
   scope: "current_slide" | "full_presentation" | "specific_slide";
   slideNumber?: number;

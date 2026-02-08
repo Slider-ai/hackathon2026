@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import OpenAI from "openai";
 import { ChatOpenAI } from "@langchain/openai";
 import { TavilySearch } from "@langchain/tavily";
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from "@langchain/core/messages";
@@ -9,8 +10,11 @@ import { indexMessage, indexSlides, retrieveContext, seedConversation } from "./
 dotenv.config();
 
 const app = express();
-app.use(express.json({ limit: "100mb" }));
+app.use(express.json({ limit: "100mb" })); // Increased limit for base64 images
 app.use(cors({ origin: "https://localhost:3000" }));
+
+// OpenAI client for GPT-4 Vision (image analysis)
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ChatOpenAI for slide generation and summarization (temperature 0.7)
 const generateModel = new ChatOpenAI({ model: "gpt-4o", temperature: 0.7 });
@@ -348,105 +352,143 @@ app.post("/api/fetch-article", async (req, res) => {
   }
 });
 
+/**
+ * Calculate a default image layout when GPT-4 Vision doesn't provide one.
+ * Alternates positions for variety.
+ */
+function calculateDefaultImageLayout(slideIndex: number): {
+  position: "left" | "right" | "top" | "bottom" | "center";
+  width: number;
+  height: number;
+} {
+  // Alternate left/right positions for variety
+  const isEven = slideIndex % 2 === 0;
+
+  return {
+    position: isEven ? "left" : "right",
+    width: 35,  // 35% of slide width
+    height: 50, // 50% of slide height
+  };
+}
+
+// ── Image Analysis Endpoint with GPT-4 Vision ──
 app.post("/api/analyze-image", async (req, res) => {
-  const { image, text, slideCount } = req.body as {
+  const { image, text, slideCount, embedMode, conversationId } = req.body as {
     image: { base64: string; mimeType: string };
     text?: string;
-    slideCount?: number;
+    slideCount: number;
+    embedMode: boolean;
+    conversationId?: string;
   };
 
-  if (!image || !image.base64) {
-    res.status(400).json({ error: "image is required" });
+  if (!image || !image.base64 || !image.mimeType) {
+    res.status(400).json({ error: "Image data (base64 and mimeType) is required" });
     return;
   }
 
-  console.log("[Image Analysis] Received image request", { hasText: !!text, slideCount });
+  if (typeof slideCount !== "number" || slideCount < 1 || slideCount > 10) {
+    res.status(400).json({ error: "slideCount must be between 1 and 10" });
+    return;
+  }
+
+  console.log(`[Image Analysis] Analyzing image (embed: ${embedMode}, slides: ${slideCount})`);
 
   try {
-    // Convert base64 to data URL for LangChain
-    const imageUrl = `data:${image.mimeType};base64,${image.base64}`;
+    // Use GPT-4 Vision to analyze image
+    const visionPrompt = embedMode
+      ? `Analyze this image and create ${slideCount} slides that include the image with relevant text.
+         For each slide, suggest:
+         - Title
+         - 2-4 bullet points
+         - Optimal image position (left/right/top/bottom/center)
+         - Image dimensions (width %, height %)
 
-    // If text and slideCount are provided, generate slides
-    if (text && slideCount) {
-      console.log("[Image Analysis] Generating slides from image + text");
-      
-      const systemPrompt = `You are a presentation expert. Create slides based on the provided image and user's text input. Each slide must contain specific, valuable information - not generic statements. Use clear titles and 3-5 concise, informative bullet points. Avoid meta-commentary or process descriptions.
+         ${text ? `User context: ${text}` : ""}
 
-Respond ONLY with valid JSON in this exact format:
-{ "slides": [{ "title": "Slide Title", "bullets": ["Point 1", "Point 2", "Point 3"] }] }
+         Consider image aspect ratio when suggesting position:
+         - Wide/landscape images work better at top or bottom
+         - Tall/portrait images work better at left or right
+         - Square images are flexible
 
-Generate exactly ${slideCount} slides. Do not include any text outside the JSON.`;
+         Return JSON in this exact format: { "slides": [{ "title": "...", "bullets": ["..."], "imageLayout": { "position": "left", "width": 40, "height": 60 } }] }`
+      : `Analyze this image and create ${slideCount} text-only slides describing its content in detail.
+         ${text ? `User context: ${text}` : ""}
 
-      const userMessage = text || "Create a presentation based on this image.";
+         Return JSON in this exact format: { "slides": [{ "title": "...", "bullets": ["..."] }] }`;
 
-      // Create message with image - LangChain supports images in content array
-      const messages = [
-        new SystemMessage(systemPrompt),
-        new HumanMessage({
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o", // Supports vision
+      messages: [
+        {
+          role: "user",
           content: [
-            { type: "text", text: userMessage },
-            { type: "image_url", image_url: { url: imageUrl } },
+            { type: "text", text: visionPrompt },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${image.mimeType};base64,${image.base64}`,
+              },
+            },
           ],
-        } as any), // Type assertion needed for multimodal content
-      ];
+        },
+      ],
+      temperature: 0.7,
+    });
 
-      const response = await generateModel.invoke(messages);
-      const content = typeof response.content === "string" ? response.content : "";
+    const content = completion.choices[0]?.message?.content || "";
+    console.log(`[Image Analysis] GPT-4 Vision response length: ${content.length}`);
 
-      // Extract JSON from the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        res.status(500).json({ error: "Failed to parse AI response" });
-        return;
-      }
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      console.log("[Image Analysis] Generated slides:", JSON.stringify(parsed, null, 2));
-      res.json(parsed);
-    } else {
-      // Image only: analyze and generate questions
-      console.log("[Image Analysis] Analyzing image only");
-      
-      const systemPrompt = `You are a presentation expert. Analyze the provided image and:
-1. Provide a brief analysis of what you see in the image (2-3 sentences)
-2. Generate 3-5 specific questions that would help create a meaningful presentation about this image
-
-Respond ONLY with valid JSON in this exact format:
-{
-  "analysis": "Brief description of what's in the image...",
-  "questions": ["Question 1?", "Question 2?", "Question 3?"]
-}
-
-Do not include any text outside the JSON.`;
-
-      const messages = [
-        new SystemMessage(systemPrompt),
-        new HumanMessage({
-          content: [
-            { type: "text", text: "Analyze this image and suggest questions for creating a presentation." },
-            { type: "image_url", image_url: { url: imageUrl } },
-          ],
-        } as any), // Type assertion needed for multimodal content
-      ];
-
-      const response = await generateModel.invoke(messages);
-      const content = typeof response.content === "string" ? response.content : "";
-
-      // Extract JSON from the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        res.status(500).json({ error: "Failed to parse AI response" });
-        return;
-      }
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      console.log("[Image Analysis] Analysis result:", JSON.stringify(parsed, null, 2));
-      res.json(parsed);
+    // Extract JSON from the response (handle markdown code blocks)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("[Image Analysis] Failed to parse JSON from response:", content);
+      res.status(500).json({ error: "Failed to parse AI response" });
+      return;
     }
+
+    const result = JSON.parse(jsonMatch[0]);
+
+    // If embedMode, add image reference (by ID, not base64) to each slide
+    if (embedMode && result.slides) {
+      const image_id = req.body.image_id || `img_${Date.now()}`;
+
+      result.slides = result.slides.map((slide: any, index: number) => {
+        // If GPT-4 didn't provide imageLayout, calculate a default one
+        if (!slide.imageLayout) {
+          console.log(`[Image Analysis] Slide ${index + 1} missing imageLayout, applying default`);
+          slide.imageLayout = calculateDefaultImageLayout(index);
+        }
+
+        return {
+          ...slide,
+          images: [{
+            image_id: image_id,
+            role: "primary",
+            alt_text: slide.title || "Presentation image"
+          }],
+          imageLayout: slide.imageLayout  // Keep for positioning
+        };
+      });
+    }
+
+    // Store in RAG for context (if conversationId provided)
+    if (conversationId) {
+      const analysisContext = `Image analysis: ${content.substring(0, 500)}`;
+      console.log(`[Image Analysis] Storing in RAG for conversation ${conversationId}`);
+      await indexMessage(conversationId, "assistant", analysisContext);
+    }
+
+    console.log(`[Image Analysis] Successfully generated ${result.slides?.length || 0} slides`);
+    res.json(result);
   } catch (error: unknown) {
     console.error("[Image Analysis] Error:", error);
+
+    if (error instanceof Error) {
+      console.error("[Image Analysis] Error message:", error.message);
+    }
+
     const message = error instanceof Error ? error.message : "Image analysis failed";
-    res.status(500).json({ error: message });
+    res.status(500).json({ error: `Failed to analyze image: ${message}` });
   }
 });
 

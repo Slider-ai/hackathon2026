@@ -36,6 +36,7 @@ export interface ChatMessage {
   timestamp: number;
   searchResults?: SearchResult[];
   image?: ImageData;
+  slides?: GeneratedSlide[]; // Slides generated with this message
 }
 
 export type ConversationStep =

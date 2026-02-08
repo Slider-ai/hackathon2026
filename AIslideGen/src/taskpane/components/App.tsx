@@ -64,8 +64,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function makeAssistantMessage(text: string, options?: ChatOption[], allowOther?: boolean, searchResults?: SearchResult[]): ChatMessage {
-  return { id: generateId(), role: "assistant", text, options, allowOther, searchResults, timestamp: Date.now() };
+function makeAssistantMessage(
+  text: string,
+  options?: ChatOption[],
+  allowOther?: boolean,
+  searchResults?: SearchResult[],
+  slides?: GeneratedSlide[]
+): ChatMessage {
+  return { id: generateId(), role: "assistant", text, options, allowOther, searchResults, slides, timestamp: Date.now() };
 }
 
 function makeUserMessage(text: string): ChatMessage {
@@ -570,11 +576,16 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       }
 
       const data = await response.json();
-      setSlides(data.slides || []);
+      const generatedSlides = data.slides || [];
+      setSlides(generatedSlides);
       dispatch({ type: "SET_STEP", step: "complete" });
 
       const doneMsg = makeAssistantMessage(
-        `Here are your ${data.slides?.length || 0} slides! You can insert them individually or all at once into your presentation.`
+        `Here are your ${generatedSlides.length} slides! You can insert them individually or all at once into your presentation.`,
+        undefined,
+        undefined,
+        undefined,
+        generatedSlides // Attach slides to this message
       );
       dispatch({ type: "ADD_MESSAGE", message: doneMsg });
       await persistMessage(doneMsg);
@@ -763,11 +774,16 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       }
 
       const genData = await genResponse.json();
-      setSlides(genData.slides || []);
+      const generatedSlides = genData.slides || [];
+      setSlides(generatedSlides);
       dispatch({ type: "SET_STEP", step: "complete" });
 
       const doneMsg = makeAssistantMessage(
-        `Here are your ${genData.slides?.length || 0} slides summarizing the article! You can insert them individually or all at once into your presentation.`
+        `Here are your ${generatedSlides.length} slides summarizing the article! You can insert them individually or all at once into your presentation.`,
+        undefined,
+        undefined,
+        undefined,
+        generatedSlides // Attach slides to this message
       );
       dispatch({ type: "ADD_MESSAGE", message: doneMsg });
       await persistMessage(doneMsg);
@@ -894,11 +910,16 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       }
 
       const genData = await genResponse.json();
-      setSlides(genData.slides || []);
+      const generatedSlides = genData.slides || [];
+      setSlides(generatedSlides);
       dispatch({ type: "SET_STEP", step: "complete" });
 
       const doneMsg = makeAssistantMessage(
-        `Here are your ${genData.slides?.length || 0} slides! You can insert them individually or all at once into your presentation.`
+        `Here are your ${generatedSlides.length} slides! You can insert them individually or all at once into your presentation.`,
+        undefined,
+        undefined,
+        undefined,
+        generatedSlides // Attach slides to this message
       );
       dispatch({ type: "ADD_MESSAGE", message: doneMsg });
       setIsWebSearchMode(false);

@@ -166,6 +166,103 @@ export async function getAllSlidesContent(): Promise<SlideContent[]> {
   });
 }
 
+/**
+ * Detailed shape info for editing purposes
+ */
+export interface ShapeDetail {
+  index: number;
+  name: string;
+  text: string;
+  /** Rough classification based on position/size */
+  role: "title" | "content" | "sources" | "background" | "accent" | "unknown";
+}
+
+/**
+ * Get detailed shape information from the current slide for editing.
+ * Returns shape names, text content, and roles so the AI knows what to target.
+ */
+export async function getSlideShapeDetails(): Promise<ShapeDetail[]> {
+  return await PowerPoint.run(async (context) => {
+    const slide = context.presentation.getSelectedSlides().getItemAt(0);
+    const shapes = slide.shapes;
+    shapes.load("items");
+    await context.sync();
+
+    const details: ShapeDetail[] = [];
+
+    for (let i = 0; i < shapes.items.length; i++) {
+      const shape = shapes.items[i];
+      try {
+        shape.load("name, type, left, top, width, height");
+        await context.sync();
+
+        // Try to read text content
+        try {
+          shape.load("textFrame");
+          await context.sync();
+          const textFrame = shape.textFrame;
+          textFrame.load("textRange");
+          await context.sync();
+          textFrame.textRange.load("text");
+          await context.sync();
+
+          const text = textFrame.textRange.text.trim();
+
+          // Classify shape role based on position heuristics
+          let role: ShapeDetail["role"] = "unknown";
+          if (shape.name.toLowerCase().includes("title")) {
+            role = "title";
+          } else if (shape.top < 100 && shape.height < 120) {
+            role = "title";
+          } else if (shape.top >= 100 && shape.top < 400) {
+            role = "content";
+          } else if (shape.top >= 400) {
+            role = "sources";
+          }
+
+          details.push({ index: i, name: shape.name, text, role });
+        } catch {
+          // Non-text shape (background rect, accent bar, etc.)
+          let role: ShapeDetail["role"] = "unknown";
+          if (shape.width <= 15) {
+            role = "accent";
+          } else if (shape.width >= 700 && shape.height >= 500) {
+            role = "background";
+          }
+          details.push({ index: i, name: shape.name, text: "", role });
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return details;
+  });
+}
+
+/**
+ * Navigate to a specific slide by number (1-based).
+ */
+export async function goToSlide(slideNumber: number): Promise<void> {
+  return await PowerPoint.run(async (context) => {
+    const slides = context.presentation.slides;
+    slides.load("items");
+    await context.sync();
+
+    const index = slideNumber - 1;
+    if (index < 0 || index >= slides.items.length) {
+      throw new Error(`Slide ${slideNumber} does not exist`);
+    }
+
+    const targetSlide = slides.items[index];
+    targetSlide.load("id");
+    await context.sync();
+
+    context.presentation.setSelectedSlides([targetSlide.id]);
+    await context.sync();
+  });
+}
+
 // Tracking state
 let isTracking = false;
 let trackingCallback: (() => void) | null = null;

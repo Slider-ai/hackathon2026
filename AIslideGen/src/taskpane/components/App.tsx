@@ -9,10 +9,10 @@ import { Button, makeStyles, tokens, Spinner } from "@fluentui/react-components"
 import { ArrowReset24Regular } from "@fluentui/react-icons";
 import { createSlide, SlideTheme } from "../taskpane";
 import { useSlideDetection } from "../hooks/useSlideDetection";
-import { getSlideContent, getAllSlidesContent } from "../services/slideService";
+import { getSlideContent, getAllSlidesContent, getSlideShapeDetails, goToSlide } from "../services/slideService";
 import { getDocumentId } from "../services/documentService";
 import { questions } from "../questions";
-import { parseUserIntent } from "../utils/intentParser";
+import { parseUserIntent, detectsCurrentEvents, extractUrl, isGreeting, isQuestion, isEditRequest, parseEditTarget, isSlideRequest } from "../utils/intentParser";
 import { useAuth } from "../contexts/AuthContext";
 import {
   fetchConversations,
@@ -775,7 +775,48 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
       switch (currentStep) {
         case "initial": {
-          // Parse user intent from the message
+          // CONTEXT MATTERS: Detect user intent carefully before assuming they want slides
+
+          // 1. Check if it's a greeting
+          if (isGreeting(text)) {
+            const greetingMsg = makeAssistantMessage(
+              "Hi there! 👋 I'm Slider, your AI presentation assistant. I can help you create slides about any topic. Just tell me what you'd like to make a presentation about!"
+            );
+            dispatch({ type: "ADD_MESSAGE", message: greetingMsg });
+            await persistMessage(greetingMsg);
+            return;
+          }
+
+          // 2. Check if it's a question (not a slide request)
+          if (isQuestion(text) && !isSlideRequest(text)) {
+            const questionMsg = makeAssistantMessage(
+              "I'm here to help create presentation slides! You can:\n• Ask me to create slides about a topic\n• Provide a URL to summarize into slides\n• Upload files or images to turn into presentations\n\nWhat would you like to create slides about?"
+            );
+            dispatch({ type: "ADD_MESSAGE", message: questionMsg });
+            await persistMessage(questionMsg);
+            return;
+          }
+
+          // 3. Check if it's an edit request (before slide generation check)
+          if (isEditRequest(text)) {
+            const editTarget = parseEditTarget(text);
+            if (editTarget.scope === "specific" && editTarget.slideNumber) {
+              try {
+                await goToSlide(editTarget.slideNumber);
+              } catch {
+                const navMsg = makeAssistantMessage(
+                  `Could not navigate to slide ${editTarget.slideNumber}. Please navigate there manually and try again.`
+                );
+                dispatch({ type: "ADD_MESSAGE", message: navMsg });
+                await persistMessage(navMsg);
+                return;
+              }
+            }
+            await runEditSlide(text);
+            return;
+          }
+
+          // 4. Parse user intent from the message
           const intent = parseUserIntent(text);
 
           // Set the topic/prompt
@@ -961,7 +1002,204 @@ const App: React.FC<AppProps> = (props: AppProps) => {
               "Could you provide a bit more detail? What would you like the presentation to focus on?"
             );
             dispatch({ type: "ADD_MESSAGE", message: askMsg });
-            persistMessage(askMsg);
+            await persistMessage(askMsg);
+          }
+          break;
+        }
+
+        case "complete": {
+          // CONTEXT MATTERS: Detect user intent carefully before assuming they want slides
+
+          // 1. Check if it's a greeting
+          if (isGreeting(text)) {
+            const greetingMsg = makeAssistantMessage(
+              "Hey! 👋 How can I help you with your presentation? You can ask me to create slides, or just let me know what you'd like to work on."
+            );
+            dispatch({ type: "ADD_MESSAGE", message: greetingMsg });
+            await persistMessage(greetingMsg);
+            return;
+          }
+
+          // 2. Check if it's a question (not a slide request)
+          if (isQuestion(text) && !isSlideRequest(text)) {
+            const questionMsg = makeAssistantMessage(
+              "I'm here to help create presentation slides! If you'd like me to make slides about something, just let me know the topic. For example: 'Create 3 slides about AI developments' or 'Summarize this article: [URL]'."
+            );
+            dispatch({ type: "ADD_MESSAGE", message: questionMsg });
+            await persistMessage(questionMsg);
+            return;
+          }
+
+          // 3. Check if it's an edit request
+          if (isEditRequest(text)) {
+            const editTarget = parseEditTarget(text);
+            if (editTarget.scope === "specific" && editTarget.slideNumber) {
+              try {
+                await goToSlide(editTarget.slideNumber);
+              } catch {
+                const navMsg = makeAssistantMessage(
+                  `Could not navigate to slide ${editTarget.slideNumber}. Please navigate there manually and try again.`
+                );
+                dispatch({ type: "ADD_MESSAGE", message: navMsg });
+                await persistMessage(navMsg);
+                return;
+              }
+            }
+            await runEditSlide(text);
+            return;
+          }
+
+          // 4. Parse intent for slide generation
+          const intent = parseUserIntent(text);
+          const needsWebSearch = detectsCurrentEvents(text);
+
+          // 4. Validate input - must have meaningful content for slide generation
+          if (!intent.hasAllInfo && text.trim().length < 5) {
+            const clarifyMsg = makeAssistantMessage(
+              "I'd love to help! What would you like me to create slides about?"
+            );
+            dispatch({ type: "ADD_MESSAGE", message: clarifyMsg });
+            await persistMessage(clarifyMsg);
+            return;
+          }
+
+          // Check if user provided a specific URL - if so, fetch that article directly
+          const providedUrl = extractUrl(text);
+          if (providedUrl) {
+            // User provided a URL - fetch it directly without asking permission
+            setSlides([]);
+            await runArticleFetch(text, providedUrl);
+            return;
+          }
+
+          // Check if web search should be used (toggle ON OR current events detected)
+          if (isWebSearchMode || needsWebSearch) {
+            // Clear old slides
+            setSlides([]);
+
+            // Always ask for permission unless user allowed all
+            if (!allowAllSearches) {
+              // Ask for permission first, even if toggle is ON
+              setPendingSearchQuery(text);
+              dispatch({ type: "SET_STEP", step: "web_search_permission" });
+              const permissionMsg = makeAssistantMessage(
+                "This query would benefit from web search to get the latest information. Would you like me to search online?",
+                [
+                  { label: "Yes, search now", value: "yes" },
+                  { label: "Yes, and allow all searches this session", value: "allow_all" },
+                  { label: "No, continue without search", value: "no" },
+                ]
+              );
+              dispatch({ type: "ADD_MESSAGE", message: permissionMsg });
+              await persistMessage(permissionMsg);
+              return;
+            }
+
+            // User has allowed all searches
+            const msg = makeAssistantMessage("Searching the web for latest information...");
+            dispatch({ type: "ADD_MESSAGE", message: msg });
+            await persistMessage(msg);
+
+            await runWebSearch(text);
+            return;
+          }
+
+          // Normal flow (no web search needed)
+          // Clear UI state and old search results to prevent reusing previous web search data
+          setSlides([]);
+          dispatch({ type: "CLEAR_SEARCH_RESULTS" });
+
+          // Set new prompt and inherit previous settings for follow-up queries
+          dispatch({ type: "SET_USER_PROMPT", prompt: intent.topic || text });
+          dispatch({
+            type: "SET_MODE",
+            mode: intent.mode || state.mode, // Inherit previous mode if not specified
+          });
+          dispatch({
+            type: "SET_SLIDE_COUNT",
+            count: intent.slideCount !== undefined ? intent.slideCount : state.slideCount, // Inherit previous count
+          });
+          dispatch({
+            type: "SET_TONE",
+            tone: intent.tone || state.tone, // Inherit previous tone if not specified
+          });
+
+          // Generate immediately with inherited settings and conversation context
+          dispatch({ type: "SET_STEP", step: "generating" });
+          await delay(300);
+          await generateSlides();
+          break;
+        }
+
+        case "web_search_permission": {
+          // Handle user's response to web search permission
+          const choice = option?.value || text.toLowerCase();
+
+          if (choice === "yes" || choice === "allow_all") {
+            // Set allow all flag if requested
+            if (choice === "allow_all") {
+              setAllowAllSearches(true);
+              const confirmMsg = makeAssistantMessage(
+                "Got it! I'll automatically use web search for relevant queries for the rest of this session."
+              );
+              dispatch({ type: "ADD_MESSAGE", message: confirmMsg });
+              await persistMessage(confirmMsg);
+            }
+
+            // Proceed with web search using the pending query
+            const searchMsg = makeAssistantMessage("Searching the web for latest information...");
+            dispatch({ type: "ADD_MESSAGE", message: searchMsg });
+            await persistMessage(searchMsg);
+            await runWebSearch(pendingSearchQuery);
+            setPendingSearchQuery("");
+          } else if (choice === "no") {
+            // Continue without web search
+            const continueMsg = makeAssistantMessage(
+              "No problem! Continuing without web search. What would you like to create slides about?"
+            );
+            dispatch({ type: "ADD_MESSAGE", message: continueMsg });
+            await persistMessage(continueMsg);
+            dispatch({ type: "SET_STEP", step: "initial" });
+            setPendingSearchQuery("");
+          } else {
+            // Invalid response
+            const clarifyMsg = makeAssistantMessage(
+              "Please choose one of the options above or type 'yes', 'no', or 'allow all'."
+            );
+            dispatch({ type: "ADD_MESSAGE", message: clarifyMsg });
+            await persistMessage(clarifyMsg);
+          }
+          break;
+        }
+
+        case "edit_complete": {
+          // User is continuing after a successful edit
+          if (isEditRequest(text)) {
+            const editTarget = parseEditTarget(text);
+            if (editTarget.scope === "specific" && editTarget.slideNumber) {
+              try {
+                await goToSlide(editTarget.slideNumber);
+              } catch {
+                const navMsg = makeAssistantMessage(
+                  `Could not navigate to slide ${editTarget.slideNumber}. Please navigate there manually and try again.`
+                );
+                dispatch({ type: "ADD_MESSAGE", message: navMsg });
+                await persistMessage(navMsg);
+                break;
+              }
+            }
+            await runEditSlide(text);
+          } else if (isGreeting(text)) {
+            const greetingMsg = makeAssistantMessage(
+              "Hey! Glad the edits worked out. What else can I help with?"
+            );
+            dispatch({ type: "ADD_MESSAGE", message: greetingMsg });
+            await persistMessage(greetingMsg);
+          } else {
+            // Treat as a new request - reset to initial and re-process
+            dispatch({ type: "SET_STEP", step: "initial" });
+            await handleSend(text);
+>>>>>>> Stashed changes
           }
           break;
         }

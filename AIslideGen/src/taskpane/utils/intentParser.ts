@@ -136,3 +136,119 @@ export function parseUserIntent(message: string): ParsedIntent {
     hasAllInfo
   };
 }
+
+/**
+ * Detects if the user's query is about current events or recent information
+ * that would benefit from web search.
+ */
+export function detectsCurrentEvents(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  const temporal = /\b(latest|recent|current|today|this week|2024|2025|2026|now|happening|breaking|news|developments)\b/i;
+  const questions = /\b(what's happening|what's going on|what are the latest)\b/i;
+  const data = /\b(current statistics|latest data|recent trends|breaking news)\b/i;
+  return temporal.test(lowerText) || questions.test(lowerText) || data.test(lowerText);
+}
+
+/**
+ * Extracts URLs from user query
+ */
+export function extractUrl(text: string): string | null {
+  // Match http(s) URLs
+  const urlMatch = text.match(/https?:\/\/[^\s]+/);
+  return urlMatch ? urlMatch[0] : null;
+}
+
+/**
+ * Detects if user provided a specific URL to fetch/summarize
+ */
+export function hasProvidedUrl(text: string): boolean {
+  return extractUrl(text) !== null;
+}
+
+/**
+ * Detects if the message is a greeting
+ */
+export function isGreeting(text: string): boolean {
+  const lowerText = text.toLowerCase().trim();
+  const greetings = /^(hi|hey|hello|sup|yo|greetings|good morning|good afternoon|good evening|howdy)[\s!?.]*$/i;
+  return greetings.test(lowerText);
+}
+
+/**
+ * Detects if the message is a question (not a request to create slides)
+ */
+export function isQuestion(text: string): boolean {
+  const lowerText = text.toLowerCase().trim();
+  // Questions that are NOT slide generation requests
+  const questionWords = /^(what|who|where|when|why|how|can|could|would|should|is|are|do|does|did)/i;
+  const hasQuestionMark = text.includes("?");
+
+  // But exclude slide generation questions like "can you create slides about..."
+  const isSlideRequest = /\b(create|generate|make|build|give me|show me)\b.*\b(slide|presentation|deck)\b/i.test(lowerText);
+
+  return (questionWords.test(lowerText) || hasQuestionMark) && !isSlideRequest;
+}
+
+/**
+ * Detects if the message is a request to edit an existing slide.
+ * Must be checked BEFORE isSlideRequest since "change the slide title" is an edit, not creation.
+ */
+export function isEditRequest(text: string): boolean {
+  const lowerText = text.toLowerCase();
+
+  // Edit verbs + slide/content targets
+  const editVerbs = /\b(add|edit|change|modify|update|fix|replace|remove|delete|restyle|rewrite|revise|tweak|adjust|rephrase)\b/;
+  const slideTargets = /\b(slide|title|bullet|content|text|heading|point|background|font|color|style|this slide|current slide)\b/;
+
+  if (editVerbs.test(lowerText) && slideTargets.test(lowerText)) {
+    return true;
+  }
+
+  // "make the title...", "make it more...", "make the text..."
+  if (/\bmake\s+(the\s+)?(title|bullet|content|text|slide|it)\b/.test(lowerText)) {
+    return true;
+  }
+
+  // "delete this slide", "remove slide 3"
+  if (/\b(delete|remove)\s+(this\s+)?slide\b/.test(lowerText)) {
+    return true;
+  }
+
+  // "add a bullet about...", "add more points", "add 2 more bullet points"
+  if (/\badd\s+(.+\s+)?(bullet|point|item)s?\b/.test(lowerText)) {
+    return true;
+  }
+
+  // "more/additional/extra bullets", "2 more bullet points to slide 1"
+  if (/\b(more|additional|extra|another)\b.*\b(bullet|point|item|slide)s?\b/.test(lowerText)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Parse the edit request to determine which slide to target
+ */
+export function parseEditTarget(text: string): { scope: "current" | "specific"; slideNumber?: number } {
+  const lowerText = text.toLowerCase();
+
+  // Check for specific slide number: "slide 3", "slide number 5"
+  const slideNumMatch = lowerText.match(/slide\s+(?:number\s+)?(\d+)/);
+  if (slideNumMatch) {
+    return { scope: "specific", slideNumber: parseInt(slideNumMatch[1], 10) };
+  }
+
+  // Default: current slide
+  return { scope: "current" };
+}
+
+/**
+ * Detects if the message is clearly a slide generation request
+ */
+export function isSlideRequest(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  const requestPatterns = /\b(create|generate|make|build|give me|show me|i want|i need)\b.*\b(slide|presentation|deck)\b/i;
+  const hasSlideCount = /\b(\d+|a|one|two|three|four|five|six|seven|eight|nine|ten)\s+slide/i.test(lowerText);
+  return requestPatterns.test(lowerText) || hasSlideCount;
+}

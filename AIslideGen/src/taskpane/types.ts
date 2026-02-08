@@ -50,6 +50,7 @@ export type ConversationStep =
   | "summarize_generating"
   | "web_search_query"
   | "web_search_results"
+  | "web_search_permission"
   | "image_analysis"
   | "image_followup";
 

@@ -148,3 +148,19 @@ export function detectsCurrentEvents(text: string): boolean {
   const data = /\b(current statistics|latest data|recent trends|breaking news)\b/i;
   return temporal.test(lowerText) || questions.test(lowerText) || data.test(lowerText);
 }
+
+/**
+ * Extracts URLs from user query
+ */
+export function extractUrl(text: string): string | null {
+  // Match http(s) URLs
+  const urlMatch = text.match(/https?:\/\/[^\s]+/);
+  return urlMatch ? urlMatch[0] : null;
+}
+
+/**
+ * Detects if user provided a specific URL to fetch/summarize
+ */
+export function hasProvidedUrl(text: string): boolean {
+  return extractUrl(text) !== null;
+}

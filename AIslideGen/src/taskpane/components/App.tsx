@@ -91,7 +91,8 @@ type Action =
   | { type: "SET_TONE"; tone: Tone }
   | { type: "SET_ADDITIONAL_CONTEXT"; text: string }
   | { type: "SET_IMAGE"; image: ImageData | undefined }
-  | { type: "RESET" };
+  | { type: "RESET" }
+  | { type: "CLEAR_SEARCH_RESULTS" };
 
 const initialState: ConversationState = {
   step: "initial",
@@ -124,6 +125,17 @@ function chatReducer(state: ConversationState, action: Action): ConversationStat
       return { ...state, image: action.image };
     case "RESET":
       return { ...initialState, messages: [] };
+    case "CLEAR_SEARCH_RESULTS":
+      return {
+        ...state,
+        messages: state.messages.map((msg) => {
+          if (msg.searchResults) {
+            const { searchResults, ...rest } = msg;
+            return rest;
+          }
+          return msg;
+        }),
+      };
     default:
       return state;
   }
@@ -1024,8 +1036,9 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           }
 
           // Normal flow (no web search needed)
-          // Clear UI state but preserve messages for context
+          // Clear UI state and old search results to prevent reusing previous web search data
           setSlides([]);
+          dispatch({ type: "CLEAR_SEARCH_RESULTS" });
 
           // Set new prompt and inherit previous settings for follow-up queries
           dispatch({ type: "SET_USER_PROMPT", prompt: intent.topic || text });

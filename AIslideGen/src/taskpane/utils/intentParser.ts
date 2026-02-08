@@ -197,7 +197,7 @@ export function isEditRequest(text: string): boolean {
   const lowerText = text.toLowerCase();
 
   // Edit verbs + slide/content targets
-  const editVerbs = /\b(edit|change|modify|update|fix|replace|remove|delete|restyle|rewrite|revise|tweak|adjust|rephrase)\b/;
+  const editVerbs = /\b(add|edit|change|modify|update|fix|replace|remove|delete|restyle|rewrite|revise|tweak|adjust|rephrase)\b/;
   const slideTargets = /\b(slide|title|bullet|content|text|heading|point|background|font|color|style|this slide|current slide)\b/;
 
   if (editVerbs.test(lowerText) && slideTargets.test(lowerText)) {
@@ -214,8 +214,13 @@ export function isEditRequest(text: string): boolean {
     return true;
   }
 
-  // "add a bullet about...", "add more points"
-  if (/\badd\s+(a\s+)?(bullet|point|item)\b/.test(lowerText)) {
+  // "add a bullet about...", "add more points", "add 2 more bullet points"
+  if (/\badd\s+(.+\s+)?(bullet|point|item)s?\b/.test(lowerText)) {
+    return true;
+  }
+
+  // "more/additional/extra bullets", "2 more bullet points to slide 1"
+  if (/\b(more|additional|extra|another)\b.*\b(bullet|point|item|slide)s?\b/.test(lowerText)) {
     return true;
   }
 

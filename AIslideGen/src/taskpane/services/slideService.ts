@@ -240,6 +240,30 @@ export async function getSlideShapeDetails(): Promise<ShapeDetail[]> {
   });
 }
 
+/**
+ * Navigate to a specific slide by number (1-based).
+ */
+export async function goToSlide(slideNumber: number): Promise<void> {
+  return await PowerPoint.run(async (context) => {
+    const slides = context.presentation.slides;
+    slides.load("items");
+    await context.sync();
+
+    const index = slideNumber - 1;
+    if (index < 0 || index >= slides.items.length) {
+      throw new Error(`Slide ${slideNumber} does not exist`);
+    }
+
+    const targetSlide = slides.items[index];
+    targetSlide.load("id");
+    await context.sync();
+
+    context.presentation.setSelectedSlides([targetSlide.id]);
+    await context.sync();
+  });
+}
+
+
 // Tracking state
 let isTracking = false;
 let trackingCallback: (() => void) | null = null;

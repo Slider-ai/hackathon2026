@@ -9,7 +9,8 @@ import { Button, makeStyles, tokens, Spinner } from "@fluentui/react-components"
 import { SignOut20Regular } from "@fluentui/react-icons";
 import { createSlide, applyEdits, SlideTheme } from "../taskpane";
 import { useSlideDetection } from "../hooks/useSlideDetection";
-import { getSlideContent, getAllSlidesContent, getSlideShapeDetails } from "../services/slideService";
+import { getSlideContent, getAllSlidesContent, getSlideShapeDetails, goToSlide } from "../services/slideService";
+import { getDocumentId } from "../services/documentService";
 import { questions } from "../questions";
 import { parseUserIntent, detectsCurrentEvents, hasProvidedUrl, extractUrl, isGreeting, isQuestion, isSlideRequest, isEditRequest, parseEditTarget } from "../utils/intentParser";
 import { getOrCreateDocumentId } from "../utils/documentId";
@@ -1076,15 +1077,20 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           // 3. Check if it's an edit request (before slide generation check)
           if (isEditRequest(text)) {
             const editTarget = parseEditTarget(text);
-            if (editTarget.scope === "current") {
-              await runEditSlide(text);
-            } else {
-              const navMsg = makeAssistantMessage(
-                `Please navigate to slide ${editTarget.slideNumber} first, then tell me what you'd like to change.`
-              );
-              dispatch({ type: "ADD_MESSAGE", message: navMsg });
-              await persistMessage(navMsg);
+            if (editTarget.scope === "specific" && editTarget.slideNumber) {
+              try {
+                await goToSlide(editTarget.slideNumber);
+              } catch {
+                const navMsg = makeAssistantMessage(
+                  `Could not navigate to slide ${editTarget.slideNumber}. Please navigate there manually and try again.`
+                );
+                dispatch({ type: "ADD_MESSAGE", message: navMsg });
+                await persistMessage(navMsg);
+                return;
+              }
             }
+            await runEditSlide(text);
+        
             return;
           }
 
@@ -1342,15 +1348,20 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           // 3. Check if it's an edit request
           if (isEditRequest(text)) {
             const editTarget = parseEditTarget(text);
-            if (editTarget.scope === "current") {
-              await runEditSlide(text);
-            } else {
-              const navMsg = makeAssistantMessage(
-                `Please navigate to slide ${editTarget.slideNumber} first, then tell me what you'd like to change.`
-              );
-              dispatch({ type: "ADD_MESSAGE", message: navMsg });
-              await persistMessage(navMsg);
+            if (editTarget.scope === "specific" && editTarget.slideNumber) {
+              try {
+                await goToSlide(editTarget.slideNumber);
+              } catch {
+                const navMsg = makeAssistantMessage(
+                  `Could not navigate to slide ${editTarget.slideNumber}. Please navigate there manually and try again.`
+                );
+                dispatch({ type: "ADD_MESSAGE", message: navMsg });
+                await persistMessage(navMsg);
+                return;
+              }
             }
+            await runEditSlide(text);
+
             return;
           }
 
@@ -1480,6 +1491,20 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         case "edit_complete": {
           // User is continuing after a successful edit
           if (isEditRequest(text)) {
+            const editTarget = parseEditTarget(text);
+            if (editTarget.scope === "specific" && editTarget.slideNumber) {
+              try {
+                await goToSlide(editTarget.slideNumber);
+              } catch {
+                const navMsg = makeAssistantMessage(
+                  `Could not navigate to slide ${editTarget.slideNumber}. Please navigate there manually and try again.`
+                );
+                dispatch({ type: "ADD_MESSAGE", message: navMsg });
+                await persistMessage(navMsg);
+                break;
+              }
+            }
+
             await runEditSlide(text);
           } else if (isGreeting(text)) {
             const greetingMsg = makeAssistantMessage(
@@ -1491,6 +1516,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
             // Treat as a new request - reset to initial and re-process
             dispatch({ type: "SET_STEP", step: "initial" });
             await handleSend(text);
+
           }
           break;
         }

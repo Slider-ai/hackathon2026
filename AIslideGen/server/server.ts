@@ -5,12 +5,16 @@ import { ChatOpenAI } from "@langchain/openai";
 import { TavilySearch } from "@langchain/tavily";
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from "@langchain/core/messages";
 import { indexMessage, indexSlides, retrieveContext, seedConversation } from "./ragStore";
+import chartRouter from "./routes/chart";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: "100mb" }));
 app.use(cors({ origin: "https://localhost:3000" }));
+
+// Register chart routes
+app.use("/api/chart", chartRouter);
 
 // ChatOpenAI for slide generation and summarization (temperature 0.7)
 const generateModel = new ChatOpenAI({ model: "gpt-4o", temperature: 0.7 });

@@ -23,6 +23,8 @@ import {
   saveMessage,
 } from "../services/conversationService";
 import type { ConversationState, ConversationStep, ChatMessage, ChatOption, GeneratedSlide, Mode, Tone, SearchResult, Conversation, ImageData } from "../types";
+import type { ParsedData } from "../utils/dataParser";
+import { createChartImage, getChartTypeName } from "../utils/chartHandler";
 
 /* global fetch */
 
@@ -99,6 +101,7 @@ type Action =
   | { type: "SET_MODE"; mode: Mode }
   | { type: "SET_SLIDE_COUNT"; count: number }
   | { type: "SET_TONE"; tone: Tone }
+  | { type: "SET_LAYOUT"; layout: string }
   | { type: "SET_ADDITIONAL_CONTEXT"; text: string }
   | { type: "SET_IMAGE"; image: ImageData | undefined }
   | { type: "CLEAR_SEARCH_RESULTS" }
@@ -130,6 +133,8 @@ function chatReducer(state: ConversationState, action: Action): ConversationStat
       return { ...state, slideCount: action.count };
     case "SET_TONE":
       return { ...state, tone: action.tone };
+    case "SET_LAYOUT":
+      return { ...state, layout: action.layout };
     case "SET_ADDITIONAL_CONTEXT":
       return { ...state, additionalContext: action.text };
     case "SET_IMAGE":
@@ -1704,10 +1709,10 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           dispatch({ type: "SET_STEP", step: "image_followup" });
 
           // Show analysis and questions
-          const analysisText = data.analysis 
+          const analysisText = data.analysis
             ? `I've analyzed your image:\n\n${data.analysis}\n\nTo create a presentation, please answer these questions:`
             : "I've analyzed your image. To create a presentation, please answer these questions:";
-          
+
           const analysisMsg = makeAssistantMessage(
             analysisText,
             data.questions?.map((q: string) => ({ label: q, value: q })) || [],
@@ -1729,11 +1734,76 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     [state.userPrompt, persistMessage]
   );
 
+  const handleDataUpload = useCallback(
+    async (parsedData: ParsedData) => {
+      const userMsg = makeUserMessage(`Uploaded data file: ${parsedData.fileName}`);
+      dispatch({ type: "ADD_MESSAGE", message: userMsg });
+      await persistMessage(userMsg);
+
+      setIsTyping(true);
+
+      const analyzingMsg = makeAssistantMessage("Analyzing your data and generating chart...");
+      dispatch({ type: "ADD_MESSAGE", message: analyzingMsg });
+      await persistMessage(analyzingMsg);
+
+      try {
+        // Call backend to generate chart image
+        const response = await fetch("/api/chart/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            headers: parsedData.headers,
+            rows: parsedData.rows,
+            columnTypes: parsedData.columnTypes,
+            fileName: parsedData.fileName,
+          }),
+        });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(errBody.error || `Server error (${response.status})`);
+        }
+
+        const data = await response.json();
+        const recommendation = data.recommendation;
+        const base64Presentation = data.presentation;
+
+        const creatingMsg = makeAssistantMessage(
+          `Creating ${getChartTypeName(recommendation.chartType)}: "${recommendation.title}"...\n\n${recommendation.reasoning}`
+        );
+        dispatch({ type: "ADD_MESSAGE", message: creatingMsg });
+        await persistMessage(creatingMsg);
+
+        // Insert the chart slide into PowerPoint
+        await createChartImage(base64Presentation);
+
+        const successMsg = makeAssistantMessage(
+          `Done! I've created a ${getChartTypeName(recommendation.chartType).toLowerCase()} on the current slide with ${parsedData.rows.length} rows of data.`
+        );
+        dispatch({ type: "ADD_MESSAGE", message: successMsg });
+        await persistMessage(successMsg);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to create chart";
+        const errorMsg = makeAssistantMessage(
+          `Sorry, something went wrong: ${message}. Please try again.`
+        );
+        dispatch({ type: "ADD_MESSAGE", message: errorMsg });
+        await persistMessage(errorMsg);
+      } finally {
+        setIsTyping(false);
+      }
+    },
+    [persistMessage]
+  );
+
   const handleThemeChange = useCallback((theme: SlideTheme) => {
     // Map SlideTheme to Tone (they're compatible)
     dispatch({ type: "SET_TONE", tone: theme as Tone });
   }, []);
 
+  const handleLayoutChange = useCallback((layout: SlideLayout) => {
+    dispatch({ type: "SET_LAYOUT", layout: layout as string });
+  }, []);
 
   const handleEditSlide = useCallback(async () => {
     const msg = makeAssistantMessage(
@@ -1824,6 +1894,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         onSend={(text) => handleSend(text)}
         onFileUpload={handleFileUpload}
         onImageUpload={handleImageUpload}
+        onDataUpload={handleDataUpload}
         disabled={inputDisabled}
         placeholder={getPlaceholder(state.step)}
         currentSlide={currentSlide}
@@ -1834,6 +1905,8 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         onDismissWebSearch={handleDismissWebSearch}
         selectedTheme={state.tone as SlideTheme}
         onThemeChange={handleThemeChange}
+        selectedLayout={state.layout as SlideLayout}
+        onLayoutChange={handleLayoutChange}
         onEditSlide={handleEditSlide}
       />
     </div>

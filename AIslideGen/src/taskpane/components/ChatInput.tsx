@@ -17,16 +17,19 @@ import {
   Add24Regular,
   Image24Regular,
   DocumentBulletList24Regular,
+  SlideLayout24Regular,
   ArrowUpload24Regular,
   TextBulletListSquare24Regular,
   Globe24Regular,
   Dismiss16Regular,
   PaintBrush24Regular,
   Edit24Regular,
+  DataBarVertical24Regular,
 } from "@fluentui/react-icons";
 import { parseFile } from "../utils/fileParser";
 import { processImage, ImageData } from "../utils/imageHandler";
-import type { SlideTheme } from "../taskpane";
+import { parseDataFile, ParsedData } from "../utils/dataParser";
+import type { SlideTheme, SlideLayout } from "../taskpane";
 
 const themeLabels: Record<SlideTheme, string> = {
   professional: "Professional",
@@ -36,10 +39,21 @@ const themeLabels: Record<SlideTheme, string> = {
   minimal: "Minimal",
 };
 
+const layoutLabels: Record<SlideLayout, string> = {
+  "title-content": "Title + Content",
+  "title-only": "Title Only",
+  "two-column": "Two Column",
+  "big-number": "Big Number",
+  "quote": "Quote",
+  "image-left": "Image Left",
+  "image-right": "Image Right",
+};
+
 interface ChatInputProps {
   onSend: (text: string) => void;
   onFileUpload: (fileName: string, extractedText: string) => void;
   onImageUpload: (imageData: ImageData) => void;
+  onDataUpload: (data: ParsedData) => void;
   disabled: boolean;
   placeholder: string;
   currentSlide?: number | null;
@@ -50,6 +64,8 @@ interface ChatInputProps {
   onDismissWebSearch?: () => void;
   selectedTheme?: SlideTheme;
   onThemeChange?: (theme: SlideTheme) => void;
+  selectedLayout?: SlideLayout;
+  onLayoutChange?: (layout: SlideLayout) => void;
   onEditSlide?: () => void;
 }
 
@@ -142,12 +158,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onDismissWebSearch,
   selectedTheme = "professional",
   onThemeChange,
+  selectedLayout = "title-content",
+  onLayoutChange,
   onEditSlide,
+  onDataUpload,
 }) => {
   const styles = useStyles();
   const [text, setText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const dataInputRef = useRef<HTMLInputElement>(null);
   const [isParsingFile, setIsParsingFile] = useState(false);
 
   const handleUploadClick = () => {
@@ -156,6 +176,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleImageUploadClick = () => {
     imageInputRef.current?.click();
+  };
+
+  const handleDataUploadClick = () => {
+    dataInputRef.current?.click();
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -192,6 +216,23 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  const handleDataChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    setIsParsingFile(true);
+    try {
+      const parsedData = await parseDataFile(file);
+      onDataUpload(parsedData);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to parse data file.";
+      alert(message);
+    } finally {
+      setIsParsingFile(false);
+    }
+  };
+
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -218,13 +259,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
   return (
     <div className={styles.container}>
       {/* Active Indicators Row */}
-      {(selectedTheme || isWebSearchActive) && (
+      {(selectedTheme || selectedLayout || isWebSearchActive) && (
         <div className={styles.activeIndicatorRow}>
           {/* Theme Indicator */}
           {selectedTheme && (
             <div className={styles.activeIndicatorChip}>
               <PaintBrush24Regular style={{ width: "14px", height: "14px" }} />
               <span>{themeLabels[selectedTheme]}</span>
+            </div>
+          )}
+
+          {/* Layout Indicator */}
+          {selectedLayout && (
+            <div className={styles.activeIndicatorChip}>
+              <SlideLayout24Regular style={{ width: "14px", height: "14px" }} />
+              <span>{layoutLabels[selectedLayout]}</span>
             </div>
           )}
 
@@ -257,6 +306,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
         accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
         style={{ display: "none" }}
         onChange={handleImageChange}
+      />
+      <input
+        ref={dataInputRef}
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        style={{ display: "none" }}
+        onChange={handleDataChange}
       />
       <div className={styles.inputRow}>
         <Menu>
@@ -293,6 +349,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 </MenuPopover>
               </Menu>
 
+              {/* Layout Submenu */}
+              <Menu>
+                <MenuTrigger disableButtonEnhancement>
+                  <MenuItem icon={<SlideLayout24Regular />}>
+                    Layouts
+                  </MenuItem>
+                </MenuTrigger>
+
+                <MenuPopover>
+                  <MenuList>
+                    {(Object.keys(layoutLabels) as SlideLayout[]).map((layout) => (
+                      <MenuItem
+                        key={layout}
+                        onClick={() => onLayoutChange?.(layout)}
+                      >
+                        {layoutLabels[layout]}
+                      </MenuItem>
+                    ))}
+                  </MenuList>
+                </MenuPopover>
+              </Menu>
+
               <MenuItem icon={<Edit24Regular />} onClick={onEditSlide}>Edit Current Slide</MenuItem>
               <MenuItem icon={<Globe24Regular />} onClick={onWebSearch}>Web Search</MenuItem>
               <MenuItem icon={<ArrowUpload24Regular />} onClick={handleUploadClick}>
@@ -303,6 +381,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </MenuItem>
               <MenuItem icon={<Image24Regular />} onClick={handleImageUploadClick}>
                 Generate from Image
+              </MenuItem>
+              <MenuItem icon={<DataBarVertical24Regular />} onClick={handleDataUploadClick}>
+                Import Data Table
               </MenuItem>
             </MenuList>
           </MenuPopover>

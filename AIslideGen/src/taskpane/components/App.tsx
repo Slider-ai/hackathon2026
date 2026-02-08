@@ -6,7 +6,7 @@ import ChatInput from "./ChatInput";
 import ConversationSelector from "./ConversationSelector";
 import AuthScreen from "./AuthScreen";
 import { Button, makeStyles, tokens, Spinner } from "@fluentui/react-components";
-import { ArrowReset24Regular, SignOut20Regular } from "@fluentui/react-icons";
+import { SignOut20Regular } from "@fluentui/react-icons";
 import { createSlide } from "../taskpane";
 import { useSlideDetection } from "../hooks/useSlideDetection";
 import { getSlideContent, getAllSlidesContent } from "../services/slideService";
@@ -35,14 +35,6 @@ const useStyles = makeStyles({
     display: "flex",
     flexDirection: "column",
     backgroundColor: tokens.colorNeutralBackground2,
-  },
-  resetRow: {
-    display: "flex",
-    justifyContent: "center",
-    paddingTop: "8px",
-    paddingBottom: "8px",
-    paddingLeft: "12px",
-    paddingRight: "12px",
   },
   loadingRoot: {
     height: "100vh",
@@ -940,11 +932,12 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           }
 
           // Normal flow (no web search needed)
-          dispatch({ type: "RESET" });
+          // Reset state but preserve messages for context
           setSelectedValues({});
           setSlides([]);
           setInsertedSlideIndexes(new Set());
 
+          dispatch({ type: "SET_STEP", step: "initial" });
           dispatch({ type: "SET_USER_PROMPT", prompt: intent.topic || text });
 
           if (intent.slideCount !== undefined) {
@@ -1012,10 +1005,6 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     },
     [state.step, advanceConversation, generateSlides, persistMessage]
   );
-
-  const handleReset = useCallback(() => {
-    handleNewConversation();
-  }, [handleNewConversation]);
 
   const handleInsertSlide = async (slide: GeneratedSlide, index: number) => {
     console.log("Inserting slide with sources:", slide.sources);
@@ -1094,18 +1083,6 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         selectedValues={selectedValues}
         insertedSlideIndexes={insertedSlideIndexes}
       />
-      {state.step === "complete" && (
-        <div className={styles.resetRow}>
-          <Button
-            appearance="subtle"
-            icon={<ArrowReset24Regular />}
-            onClick={handleReset}
-            size="small"
-          >
-            Start Over
-          </Button>
-        </div>
-      )}
       <ChatInput
         onSend={(text) => handleSend(text)}
         onFileUpload={handleFileUpload}

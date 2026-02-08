@@ -11,7 +11,7 @@ import { createSlide, SlideTheme } from "../taskpane";
 import { useSlideDetection } from "../hooks/useSlideDetection";
 import { getSlideContent, getAllSlidesContent } from "../services/slideService";
 import { questions } from "../questions";
-import { parseUserIntent, detectsCurrentEvents, hasProvidedUrl, extractUrl } from "../utils/intentParser";
+import { parseUserIntent, detectsCurrentEvents, hasProvidedUrl, extractUrl, isGreeting, isQuestion, isSlideRequest } from "../utils/intentParser";
 import { getOrCreateDocumentId } from "../utils/documentId";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -924,10 +924,32 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
       switch (currentStep) {
         case "initial": {
-          // Parse user intent from the message
+          // CONTEXT MATTERS: Detect user intent carefully before assuming they want slides
+
+          // 1. Check if it's a greeting
+          if (isGreeting(text)) {
+            const greetingMsg = makeAssistantMessage(
+              "Hi there! 👋 I'm Slider, your AI presentation assistant. I can help you create slides about any topic. Just tell me what you'd like to make a presentation about!"
+            );
+            dispatch({ type: "ADD_MESSAGE", message: greetingMsg });
+            await persistMessage(greetingMsg);
+            return;
+          }
+
+          // 2. Check if it's a question (not a slide request)
+          if (isQuestion(text) && !isSlideRequest(text)) {
+            const questionMsg = makeAssistantMessage(
+              "I'm here to help create presentation slides! You can:\n• Ask me to create slides about a topic\n• Provide a URL to summarize into slides\n• Upload files or images to turn into presentations\n\nWhat would you like to create slides about?"
+            );
+            dispatch({ type: "ADD_MESSAGE", message: questionMsg });
+            await persistMessage(questionMsg);
+            return;
+          }
+
+          // 3. Parse user intent from the message
           const intent = parseUserIntent(text);
 
-          // Check if user provided a specific URL - if so, fetch that article directly
+          // 4. Check if user provided a specific URL - if so, fetch that article directly
           const providedUrl = extractUrl(text);
           if (providedUrl) {
             // User provided a URL - fetch it directly without asking permission
@@ -1153,12 +1175,33 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         }
 
         case "complete": {
-          // User wants to create new slides after previous ones were generated
-          // Parse intent and check if web search is needed
+          // CONTEXT MATTERS: Detect user intent carefully before assuming they want slides
+
+          // 1. Check if it's a greeting
+          if (isGreeting(text)) {
+            const greetingMsg = makeAssistantMessage(
+              "Hey! 👋 How can I help you with your presentation? You can ask me to create slides, or just let me know what you'd like to work on."
+            );
+            dispatch({ type: "ADD_MESSAGE", message: greetingMsg });
+            await persistMessage(greetingMsg);
+            return;
+          }
+
+          // 2. Check if it's a question (not a slide request)
+          if (isQuestion(text) && !isSlideRequest(text)) {
+            const questionMsg = makeAssistantMessage(
+              "I'm here to help create presentation slides! If you'd like me to make slides about something, just let me know the topic. For example: 'Create 3 slides about AI developments' or 'Summarize this article: [URL]'."
+            );
+            dispatch({ type: "ADD_MESSAGE", message: questionMsg });
+            await persistMessage(questionMsg);
+            return;
+          }
+
+          // 3. Parse intent for slide generation
           const intent = parseUserIntent(text);
           const needsWebSearch = detectsCurrentEvents(text);
 
-          // Validate input - must have meaningful content (not just "yo" or "hi")
+          // 4. Validate input - must have meaningful content for slide generation
           if (!intent.hasAllInfo && text.trim().length < 5) {
             const clarifyMsg = makeAssistantMessage(
               "I'd love to help! What would you like me to create slides about?"

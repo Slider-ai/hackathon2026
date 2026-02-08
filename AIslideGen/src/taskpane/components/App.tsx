@@ -890,9 +890,9 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       const slideCount = intent.slideCount !== undefined ? intent.slideCount : (state.slideCount || 3);
       const tone = intent.tone || state.tone || "professional";
       const mode = intent.mode || "summarize"; // Default to summarize for article URLs
-      const topic = intent.topic || `Article from ${url}`;
+      const topic = intent.topic || `Content from ${url}`;
 
-      const fetchMsg = makeAssistantMessage(`Fetching article from ${url}...`);
+      const fetchMsg = makeAssistantMessage(`Fetching content from ${url}...`);
       dispatch({ type: "ADD_MESSAGE", message: fetchMsg });
       await persistMessage(fetchMsg);
 
@@ -916,7 +916,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       }
 
       const contentMsg = makeAssistantMessage(
-        `Got it! Creating ${slideCount} slides summarizing this article...`
+        `Got it! Creating ${slideCount} slides from this link...`
       );
       dispatch({ type: "ADD_MESSAGE", message: contentMsg });
       await persistMessage(contentMsg);
@@ -1149,14 +1149,8 @@ const App: React.FC<AppProps> = (props: AppProps) => {
             // Parse user intent to check if slide count was specified
             const intent = parseUserIntent(text);
             if (intent.slideCount) {
-              // User specified slide count - search immediately
-              const searchMsg = makeAssistantMessage(
-                `I'll search for information about this link...`
-              );
-              dispatch({ type: "ADD_MESSAGE", message: searchMsg });
-              await persistMessage(searchMsg);
-              // Search for just the URL, not the entire user text
-              await runWebSearch(providedUrl);
+              // User specified slide count - fetch content from URL immediately
+              await runArticleFetch(text, providedUrl);
             } else {
               // User didn't specify slide count - ask for it first
               dispatch({ type: "SET_USER_PROMPT", prompt: providedUrl });
@@ -1383,16 +1377,11 @@ const App: React.FC<AppProps> = (props: AppProps) => {
               setIsTyping(false);
             }
           } else {
-            // Check if there's a URL in the user prompt (URL search flow)
+            // Check if there's a URL in the user prompt (URL fetch flow)
             const urlInPrompt = extractUrl(state.userPrompt);
             if (urlInPrompt) {
-              // User specified slide count for URL - now search for it
-              const searchMsg = makeAssistantMessage(
-                `I'll search for information about this link...`
-              );
-              dispatch({ type: "ADD_MESSAGE", message: searchMsg });
-              await persistMessage(searchMsg);
-              await runWebSearch(urlInPrompt);
+              // User specified slide count for URL - now fetch content from it
+              await runArticleFetch(state.userPrompt, urlInPrompt);
             } else if (detectsCurrentEvents(state.userPrompt) || isWebSearchMode) {
               // User specified slide count for web search query - now search
               const searchMsg = makeAssistantMessage("Searching the web for latest information...");

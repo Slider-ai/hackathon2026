@@ -25,6 +25,7 @@ import {
   PaintBrush24Regular,
   Edit24Regular,
   DataBarVertical24Regular,
+  Sparkle24Regular,
 } from "@fluentui/react-icons";
 import { parseFile } from "../utils/fileParser";
 import { processImage, ImageData } from "../utils/imageHandler";
@@ -68,6 +69,7 @@ interface ChatInputProps {
   selectedLayout?: SlideLayout;
   onLayoutChange?: (layout: SlideLayout) => void;
   onEditSlide?: () => void;
+  onGenerateImage?: () => void;
 }
 
 const useStyles = makeStyles({
@@ -165,6 +167,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onLayoutChange,
   onEditSlide,
   onDataUpload,
+  onGenerateImage,
 }) => {
   const styles = useStyles();
   const [text, setText] = useState(() => {
@@ -410,6 +413,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </MenuItem>
               <MenuItem icon={<Image24Regular />} onClick={handleImageUploadClick}>
                 Generate from Image
+              </MenuItem>
+              <MenuItem icon={<Sparkle24Regular />} onClick={onGenerateImage}>
+                Generate Image
               </MenuItem>
               <MenuItem icon={<DataBarVertical24Regular />} onClick={handleDataUploadClick}>
                 Import Data Table

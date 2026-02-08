@@ -24,12 +24,12 @@ const useStyles = makeStyles({
     overflowY: "auto",
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
-    paddingTop: "12px",
-    paddingBottom: "12px",
-    paddingLeft: "12px",
-    paddingRight: "12px",
-    backgroundColor: tokens.colorNeutralBackground2,
+    gap: "16px",
+    paddingTop: "20px",
+    paddingBottom: "20px",
+    paddingLeft: "20px",
+    paddingRight: "20px",
+    backgroundColor: tokens.colorNeutralBackground1,
   },
 });
 

@@ -16,38 +16,43 @@ interface OutputPreviewProps {
 
 const useStyles = makeStyles({
   wrapper: {
-    paddingLeft: "16px",
-    paddingRight: "16px",
-    paddingTop: "16px",
-    paddingBottom: "16px",
+    padding: "0",
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
+    gap: "14px",
   },
   headerRow: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    marginBottom: "6px",
   },
   heading: {
-    fontSize: tokens.fontSizeBase400,
+    fontSize: "16px",
     fontWeight: tokens.fontWeightSemibold,
+    color: tokens.colorNeutralForeground1,
   },
   card: {
-    padding: "12px",
+    padding: "16px",
+    backgroundColor: tokens.colorNeutralBackground3,
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    borderRadius: "12px",
   },
   bulletList: {
     margin: "0",
+    marginTop: "12px",
     paddingLeft: "20px",
   },
   bullet: {
-    fontSize: tokens.fontSizeBase300,
-    paddingBottom: "4px",
+    fontSize: "13px",
+    paddingBottom: "6px",
+    color: tokens.colorNeutralForeground2,
+    lineHeight: "1.5",
   },
   cardActions: {
     display: "flex",
     justifyContent: "flex-end",
-    paddingTop: "8px",
+    paddingTop: "12px",
   },
 });
 

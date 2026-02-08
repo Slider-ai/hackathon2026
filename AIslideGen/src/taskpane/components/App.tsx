@@ -27,6 +27,8 @@ import type { ConversationState, ConversationStep, ChatMessage, ChatOption, Gene
 
 interface AppProps {
   title: string;
+  isDarkMode?: boolean;
+  onToggleTheme?: () => void;
 }
 
 const useStyles = makeStyles({
@@ -34,22 +36,23 @@ const useStyles = makeStyles({
     height: "100vh",
     display: "flex",
     flexDirection: "column",
-    backgroundColor: tokens.colorNeutralBackground2,
+    backgroundColor: tokens.colorNeutralBackground1,
   },
   resetRow: {
     display: "flex",
     justifyContent: "center",
-    paddingTop: "8px",
-    paddingBottom: "8px",
+    paddingTop: "12px",
+    paddingBottom: "12px",
     paddingLeft: "12px",
     paddingRight: "12px",
+    borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
   },
   loadingRoot: {
     height: "100vh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: tokens.colorNeutralBackground2,
+    backgroundColor: tokens.colorNeutralBackground1,
   },
 });
 
@@ -1222,7 +1225,14 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
   return (
     <div className={styles.root}>
-      <Header logo="assets/logo-filled.png" title={props.title} user={user} onSignOut={signOut} />
+      <Header
+        logo="assets/logo.png"
+        title={props.title}
+        user={user}
+        onSignOut={signOut}
+        isDarkMode={props.isDarkMode}
+        onToggleTheme={props.onToggleTheme}
+      />
       <ConversationSelector
         conversations={conversations}
         activeConversationId={activeConversationId}

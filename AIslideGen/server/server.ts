@@ -29,12 +29,13 @@ const systemPrompts: Record<Mode, string> = {
 };
 
 app.post("/api/generate", async (req, res) => {
-  const { input, mode, slideCount, tone, additionalContext } = req.body as {
+  const { input, mode, slideCount, tone, additionalContext, conversationHistory } = req.body as {
     input: string;
     mode: Mode;
     slideCount: number;
     tone: string;
     additionalContext?: string;
+    conversationHistory?: string[];
   };
 
   if (!input || !mode) {
@@ -67,13 +68,25 @@ Generate exactly ${slideCount || 3} slides. Use a ${tone || "professional"} tone
     userMessage += `\n\nAdditional context: ${additionalContext}`;
   }
 
+  // Build messages array with conversation history for context
+  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    { role: "system", content: systemPrompt },
+  ];
+
+  // Add recent conversation history if available
+  if (conversationHistory && conversationHistory.length > 0) {
+    conversationHistory.forEach((msg) => {
+      messages.push({ role: "user", content: msg });
+    });
+  }
+
+  // Add the current user message
+  messages.push({ role: "user", content: userMessage });
+
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
+      messages,
       temperature: 0.7,
     });
 

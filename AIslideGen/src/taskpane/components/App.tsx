@@ -181,6 +181,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
   const [selectedValues, setSelectedValues] = useState<Record<string, string>>({});
   const [isWebSearchMode, setIsWebSearchMode] = useState(false);
   const [loadingConversations, setLoadingConversations] = useState(true);
+  const [insertedSlideIndexes, setInsertedSlideIndexes] = useState<Set<number>>(new Set());
 
   // Multi-conversation state
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -512,6 +513,12 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     persistMessage(genMsg);
 
     try {
+      // Get recent conversation history for context (last 4 user messages)
+      const recentMessages = state.messages
+        .filter((msg) => msg.role === "user")
+        .slice(-4)
+        .map((msg) => msg.text);
+
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -523,6 +530,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           additionalContext: searchContext
             ? `${state.additionalContext}\n\nRESEARCH SOURCES:\n${searchContext}`
             : state.additionalContext,
+          conversationHistory: recentMessages,
         }),
       });
 
@@ -533,6 +541,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
       const data = await response.json();
       setSlides(data.slides || []);
+      setInsertedSlideIndexes(new Set()); // Reset inserted slides tracker
       dispatch({ type: "SET_STEP", step: "complete" });
 
       const doneMsg = makeAssistantMessage(
@@ -715,6 +724,12 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
       await delay(300);
 
+      // Get recent conversation history for context (last 4 user messages)
+      const recentMessages = state.messages
+        .filter((msg) => msg.role === "user")
+        .slice(-4)
+        .map((msg) => msg.text);
+
       // Generate slides
       const genResponse = await fetch("/api/generate", {
         method: "POST",
@@ -725,6 +740,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           slideCount,
           tone,
           additionalContext: searchContext ? `RESEARCH SOURCES:\n${searchContext}` : "",
+          conversationHistory: recentMessages,
         }),
       });
 
@@ -736,19 +752,20 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       const genData = await genResponse.json();
       console.log("Generated slides from API:", genData.slides);
       setSlides(genData.slides || []);
+      setInsertedSlideIndexes(new Set()); // Reset inserted slides tracker
       dispatch({ type: "SET_STEP", step: "complete" });
 
       const doneMsg = makeAssistantMessage(
         `Here are your ${genData.slides?.length || 0} slides! You can insert them individually or all at once into your presentation.`
       );
       dispatch({ type: "ADD_MESSAGE", message: doneMsg });
-      setIsWebSearchMode(false);
+      // Keep web search mode active for follow-up queries
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Generation failed";
       const errorMsg = makeAssistantMessage(`Sorry, something went wrong: ${message}. Please try again.`);
       dispatch({ type: "ADD_MESSAGE", message: errorMsg });
       dispatch({ type: "SET_STEP", step: "initial" });
-      setIsWebSearchMode(false);
+      // Keep web search mode active even on error
     } finally {
       setIsTyping(false);
     }
@@ -881,7 +898,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           // Reset state but keep existing slides visible until new ones are generated
           dispatch({ type: "RESET" });
           setSelectedValues({});
-          setIsWebSearchMode(false);
+          // Keep web search mode active if it was enabled
 
           // Parse the new request
           const intent = parseUserIntent(text);
@@ -957,15 +974,27 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     handleNewConversation();
   }, [handleNewConversation]);
 
-  const handleInsertSlide = async (slide: GeneratedSlide) => {
+  const handleInsertSlide = async (slide: GeneratedSlide, index: number) => {
     console.log("Inserting slide with sources:", slide.sources);
     await createSlide({ title: slide.title, bullets: slide.bullets, sources: slide.sources });
+
+    // Track inserted slide and show confirmation
+    setInsertedSlideIndexes((prev) => new Set(prev).add(index));
+    const confirmMsg = makeAssistantMessage(`✓ Slide "${slide.title}" inserted into your presentation.`);
+    dispatch({ type: "ADD_MESSAGE", message: confirmMsg });
+    persistMessage(confirmMsg);
   };
 
   const handleInsertAll = async () => {
     for (const slide of slides) {
       await createSlide({ title: slide.title, bullets: slide.bullets, sources: slide.sources });
     }
+
+    // Mark all slides as inserted and show confirmation
+    setInsertedSlideIndexes(new Set(slides.map((_, i) => i)));
+    const confirmMsg = makeAssistantMessage(`✓ All ${slides.length} slides inserted into your presentation.`);
+    dispatch({ type: "ADD_MESSAGE", message: confirmMsg });
+    persistMessage(confirmMsg);
   };
 
   // ── Auth gate ──
@@ -1020,6 +1049,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         onInsertSlide={handleInsertSlide}
         onInsertAll={handleInsertAll}
         selectedValues={selectedValues}
+        insertedSlideIndexes={insertedSlideIndexes}
       />
       {state.step === "complete" && (
         <div className={styles.resetRow}>

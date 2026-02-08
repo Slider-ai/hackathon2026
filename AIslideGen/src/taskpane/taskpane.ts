@@ -5,6 +5,7 @@ export type SlideTheme = "professional" | "casual" | "academic" | "creative" | "
 export interface SlideData {
   title: string;
   bullets: string[];
+  sources?: string[];
   theme?: SlideTheme;
 }
 
@@ -148,13 +149,32 @@ export async function createSlide(slideData: SlideData) {
       contentBox.left = theme === "minimal" ? 50 : 70;
       contentBox.top = theme === "creative" ? 140 : 150;
       contentBox.width = 640;
-      contentBox.height = 350;
+      contentBox.height = slideData.sources ? 300 : 350;
 
       // Style the content box
       contentBox.textFrame.textRange.font.size = style.contentSize;
       contentBox.textFrame.textRange.font.color = style.contentColor;
       contentBox.fill.clear();
       contentBox.lineFormat.visible = false;
+
+      // Add sources citation box if sources exist
+      if (slideData.sources && slideData.sources.length > 0) {
+        const sourcesText = "Sources: " + slideData.sources.join(", ");
+        const sourcesBox = newSlide.shapes.addTextBox(sourcesText);
+
+        // Position at bottom of slide
+        sourcesBox.left = 50;
+        sourcesBox.top = 470;
+        sourcesBox.width = 600;
+        sourcesBox.height = 50;
+
+        // Style as smaller, italicized text
+        sourcesBox.textFrame.textRange.font.size = 10;
+        sourcesBox.textFrame.textRange.font.italic = true;
+        sourcesBox.textFrame.textRange.font.color = "#666666";
+        sourcesBox.fill.setSolidColor("white");
+        sourcesBox.lineFormat.visible = false;
+      }
 
       await context.sync();
     });

@@ -4,6 +4,7 @@ export type Tone = "professional" | "casual" | "academic";
 export interface GeneratedSlide {
   title: string;
   bullets: string[];
+  sources?: string[];
 }
 
 export type ChatMessageRole = "assistant" | "user";
@@ -70,4 +71,5 @@ export interface Conversation {
   slides: GeneratedSlide[];
   selectedValues: Record<string, string>;
   createdAt: number;
+  documentId?: string; // Links conversation to specific PowerPoint file
 }

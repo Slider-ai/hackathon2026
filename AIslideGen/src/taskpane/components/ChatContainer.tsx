@@ -12,9 +12,10 @@ interface ChatContainerProps {
   onOtherSubmit: (messageId: string, text: string) => void;
   isTyping: boolean;
   slides: GeneratedSlide[];
-  onInsertSlide: (slide: GeneratedSlide) => void;
+  onInsertSlide: (slide: GeneratedSlide, index: number) => void;
   onInsertAll: () => void;
   selectedValues: Record<string, string>;
+  insertedSlideIndexes?: Set<number>;
 }
 
 const useStyles = makeStyles({
@@ -41,6 +42,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   onInsertSlide,
   onInsertAll,
   selectedValues,
+  insertedSlideIndexes,
 }) => {
   const styles = useStyles();
   const endRef = useRef<HTMLDivElement>(null);
@@ -83,7 +85,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       ))}
       {isTyping && <TypingIndicator />}
       {slides.length > 0 && (
-        <OutputPreview slides={slides} onInsertSlide={onInsertSlide} onInsertAll={onInsertAll} />
+        <OutputPreview
+          slides={slides}
+          onInsertSlide={onInsertSlide}
+          onInsertAll={onInsertAll}
+          insertedSlideIndexes={insertedSlideIndexes}
+        />
       )}
       <div ref={endRef} />
     </div>

@@ -6,13 +6,13 @@ import ChatInput from "./ChatInput";
 import ConversationSelector from "./ConversationSelector";
 import AuthScreen from "./AuthScreen";
 import { Button, makeStyles, tokens, Spinner } from "@fluentui/react-components";
-import { ArrowReset24Regular } from "@fluentui/react-icons";
+import { SignOut20Regular } from "@fluentui/react-icons";
 import { createSlide, SlideTheme } from "../taskpane";
 import { useSlideDetection } from "../hooks/useSlideDetection";
 import { getSlideContent, getAllSlidesContent } from "../services/slideService";
-import { getDocumentId } from "../services/documentService";
 import { questions } from "../questions";
-import { parseUserIntent } from "../utils/intentParser";
+import { parseUserIntent, detectsCurrentEvents } from "../utils/intentParser";
+import { getOrCreateDocumentId } from "../utils/documentId";
 import { useAuth } from "../contexts/AuthContext";
 import {
   fetchConversations,
@@ -209,7 +209,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       setLoadingConversations(true);
       try {
         // Get the document ID first
-        const docId = await getDocumentId();
+        const docId = await getOrCreateDocumentId();
         setDocumentId(docId);
 
         const convs = await fetchConversations(user.id, docId);
@@ -226,8 +226,9 @@ const App: React.FC<AppProps> = (props: AppProps) => {
             slides: [],
             selectedValues: {},
             createdAt: Date.now(),
+            documentId: docId,
           };
-          await createConversation(user.id, newConv, docId);
+          await createConversation(user.id, newConv);
           setConversations([newConv]);
           setActiveConversationId(id);
           dispatch({ type: "RESET" });
@@ -376,6 +377,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
   const handleNewConversation = useCallback(async () => {
     const id = generateConvId();
+    const docId = await getOrCreateDocumentId();
     const newConv: Conversation = {
       id,
       title: "New Chat",
@@ -383,12 +385,12 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       slides: [],
       selectedValues: {},
       createdAt: Date.now(),
+      documentId: docId,
     };
 
     // Save to Supabase with document ID
     if (user) {
-      const docId = await getDocumentId();
-      createConversation(user.id, newConv, docId).catch((err) =>
+      createConversation(user.id, newConv).catch((err) =>
         console.error("Failed to create conversation:", err)
       );
     }
@@ -416,11 +418,15 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
   // Helper to save a message to Supabase (fire-and-forget)
   const persistMessage = useCallback(
-    (message: ChatMessage) => {
-      if (user && activeConversationId) {
-        saveMessage(activeConversationId, message).catch((err) =>
-          console.error("Failed to save message:", err)
-        );
+    async (message: ChatMessage): Promise<void> => {
+      if (!user || !activeConversationId) return;
+      try {
+        await saveMessage(activeConversationId, message);
+      } catch (err) {
+        console.error("Failed to save:", err);
+        await saveMessage(activeConversationId, message).catch((retryErr) => {
+          console.error("Retry failed:", retryErr);
+        });
       }
     },
     [user, activeConversationId]
@@ -450,10 +456,20 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
         const msg = makeAssistantMessage(text, questionConfig.options, questionConfig.allowOther);
         dispatch({ type: "ADD_MESSAGE", message: msg });
-        persistMessage(msg);
+        await persistMessage(msg);
       }
     },
     [persistMessage]
+  );
+
+  const buildConversationHistory = useCallback(
+    (messages: ChatMessage[]): Array<{ role: "user" | "assistant"; content: string }> => {
+      return messages.slice(-10).map((msg) => ({
+        role: msg.role,
+        content: msg.text,
+      }));
+    },
+    []
   );
 
   const generateSlides = useCallback(async () => {
@@ -501,7 +517,10 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       state.mode === "research" ? "Creating slides from research..." : "Perfect! Generating your slides now..."
     );
     dispatch({ type: "ADD_MESSAGE", message: genMsg });
-    persistMessage(genMsg);
+    await await persistMessage(genMsg);
+
+    // Get recent conversation history with proper roles
+    const conversationHistory = buildConversationHistory(state.messages);
 
     try {
       const response = await fetch("/api/generate", {
@@ -515,6 +534,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           additionalContext: searchContext
             ? `${state.additionalContext}\n\nRESEARCH SOURCES:\n${searchContext}`
             : state.additionalContext,
+          conversationHistory,
           image: state.image ? { base64: state.image.base64, mimeType: state.image.mimeType } : undefined,
         }),
       });
@@ -532,17 +552,17 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         `Here are your ${data.slides?.length || 0} slides! You can insert them individually or all at once into your presentation.`
       );
       dispatch({ type: "ADD_MESSAGE", message: doneMsg });
-      persistMessage(doneMsg);
+      await persistMessage(doneMsg);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to generate slides";
       const errorMsg = makeAssistantMessage(`Sorry, something went wrong: ${message}. Please try again.`);
       dispatch({ type: "ADD_MESSAGE", message: errorMsg });
-      persistMessage(errorMsg);
+      await persistMessage(errorMsg);
       dispatch({ type: "SET_STEP", step: "anything_else" });
     } finally {
       setIsTyping(false);
     }
-  }, [state.userPrompt, state.mode, state.slideCount, state.tone, state.additionalContext, persistMessage]);
+  }, [state.userPrompt, state.mode, state.slideCount, state.tone, state.additionalContext, state.messages, buildConversationHistory, persistMessage]);
 
   const handleSummarize = useCallback(async () => {
     dispatch({ type: "SET_STEP", step: "summarize_ask" });
@@ -559,7 +579,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       ]
     );
     dispatch({ type: "ADD_MESSAGE", message: askMsg });
-    persistMessage(askMsg);
+    await persistMessage(askMsg);
   }, [persistMessage]);
 
   const handleWebSearch = useCallback(async () => {
@@ -589,7 +609,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         : "Summarizing the entire slideshow..."
     );
     dispatch({ type: "ADD_MESSAGE", message: genMsg });
-    persistMessage(genMsg);
+    await persistMessage(genMsg);
 
     try {
       let contentText: string;
@@ -631,12 +651,12 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
       const summaryMsg = makeAssistantMessage(data.summary || "No summary available.");
       dispatch({ type: "ADD_MESSAGE", message: summaryMsg });
-      persistMessage(summaryMsg);
+      await persistMessage(summaryMsg);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to generate summary";
       const errorMsg = makeAssistantMessage(`Sorry, something went wrong: ${message}. Please try again.`);
       dispatch({ type: "ADD_MESSAGE", message: errorMsg });
-      persistMessage(errorMsg);
+      await persistMessage(errorMsg);
       dispatch({ type: "SET_STEP", step: "initial" });
     } finally {
       setIsTyping(false);
@@ -727,6 +747,9 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       );
       dispatch({ type: "ADD_MESSAGE", message: genMsg });
 
+      // Get recent conversation history with proper roles
+      const conversationHistory = buildConversationHistory(state.messages);
+
       const genResponse = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -736,6 +759,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           slideCount,
           tone,
           additionalContext: searchContext ? `RESEARCH SOURCES:\n${searchContext}` : "",
+          conversationHistory,
         }),
       });
 
@@ -762,14 +786,14 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     } finally {
       setIsTyping(false);
     }
-  }, []);
+  }, [state.messages, buildConversationHistory]);
 
   const handleSend = useCallback(
     async (text: string, option?: ChatOption) => {
       // Add user message
       const userMsg = makeUserMessage(text);
       dispatch({ type: "ADD_MESSAGE", message: userMsg });
-      persistMessage(userMsg);
+      await persistMessage(userMsg);
 
       const currentStep = state.step;
 
@@ -777,6 +801,17 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         case "initial": {
           // Parse user intent from the message
           const intent = parseUserIntent(text);
+
+          // Check if web search is needed (toggle ON or current events detected)
+          const needsWebSearch = detectsCurrentEvents(text);
+          if (!isWebSearchMode && needsWebSearch) {
+            // Auto-trigger web search for current events without toggle
+            const msg = makeAssistantMessage("Searching the web for latest information...");
+            dispatch({ type: "ADD_MESSAGE", message: msg });
+            await await persistMessage(msg);
+            await runWebSearch(text);
+            return;
+          }
 
           // Set the topic/prompt
           dispatch({ type: "SET_USER_PROMPT", prompt: intent.topic || text });
@@ -833,7 +868,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
 
               const msg = makeAssistantMessage(questionText, questionConfig.options, questionConfig.allowOther);
               dispatch({ type: "ADD_MESSAGE", message: msg });
-              persistMessage(msg);
+              await persistMessage(msg);
             }
           }
           break;
@@ -883,12 +918,12 @@ const App: React.FC<AppProps> = (props: AppProps) => {
                 `Here are your ${data.slides?.length || 0} slides based on the image${finalText ? " and your input" : ""}! You can insert them individually or all at once into your presentation.`
               );
               dispatch({ type: "ADD_MESSAGE", message: doneMsg });
-              persistMessage(doneMsg);
+              await persistMessage(doneMsg);
             } catch (err: unknown) {
               const message = err instanceof Error ? err.message : "Failed to generate slides";
               const errorMsg = makeAssistantMessage(`Sorry, something went wrong: ${message}. Please try again.`);
               dispatch({ type: "ADD_MESSAGE", message: errorMsg });
-              persistMessage(errorMsg);
+              await persistMessage(errorMsg);
               dispatch({ type: "SET_STEP", step: state.userPrompt ? "image_followup" : "initial" });
             } finally {
               setIsTyping(false);
@@ -954,15 +989,63 @@ const App: React.FC<AppProps> = (props: AppProps) => {
               questions.slideCount.allowOther
             );
             dispatch({ type: "ADD_MESSAGE", message: slideCountMsg });
-            persistMessage(slideCountMsg);
+            await persistMessage(slideCountMsg);
           } else {
             // Ask for more details
             const askMsg = makeAssistantMessage(
               "Could you provide a bit more detail? What would you like the presentation to focus on?"
             );
             dispatch({ type: "ADD_MESSAGE", message: askMsg });
-            persistMessage(askMsg);
+            await persistMessage(askMsg);
           }
+          break;
+        }
+
+        case "complete": {
+          // User wants to create new slides after previous ones were generated
+          // Parse intent and check if web search is needed
+          const intent = parseUserIntent(text);
+          const needsWebSearch = detectsCurrentEvents(text);
+
+          // Check if web search should be used (toggle ON OR current events detected)
+          if (isWebSearchMode || needsWebSearch) {
+            // Clear old slides
+            setSlides([]);
+
+            // Show message if auto-detected (toggle OFF + current events)
+            if (!isWebSearchMode && needsWebSearch) {
+              const msg = makeAssistantMessage("Searching the web for latest information...");
+              dispatch({ type: "ADD_MESSAGE", message: msg });
+              await await persistMessage(msg);
+            }
+
+            await runWebSearch(text);
+            return;
+          }
+
+          // Normal flow (no web search needed)
+          // Clear UI state but preserve messages for context
+          setSlides([]);
+
+          // Set new prompt and inherit previous settings for follow-up queries
+          dispatch({ type: "SET_USER_PROMPT", prompt: intent.topic || text });
+          dispatch({
+            type: "SET_MODE",
+            mode: intent.mode || state.mode, // Inherit previous mode if not specified
+          });
+          dispatch({
+            type: "SET_SLIDE_COUNT",
+            count: intent.slideCount !== undefined ? intent.slideCount : state.slideCount, // Inherit previous count
+          });
+          dispatch({
+            type: "SET_TONE",
+            tone: intent.tone || state.tone, // Inherit previous tone if not specified
+          });
+
+          // Generate immediately with inherited settings and conversation context
+          dispatch({ type: "SET_STEP", step: "generating" });
+          await delay(300);
+          await generateSlides();
           break;
         }
 
@@ -993,13 +1076,13 @@ const App: React.FC<AppProps> = (props: AppProps) => {
       if (state.step === "initial") {
         const userMsg = makeUserMessage(`Uploaded: ${fileName}`);
         dispatch({ type: "ADD_MESSAGE", message: userMsg });
-        persistMessage(userMsg);
+        await persistMessage(userMsg);
         dispatch({ type: "SET_USER_PROMPT", prompt: extractedText });
         await advanceConversation("initial");
       } else if (state.step === "anything_else") {
         const userMsg = makeUserMessage(`Uploaded: ${fileName}`);
         dispatch({ type: "ADD_MESSAGE", message: userMsg });
-        persistMessage(userMsg);
+        await persistMessage(userMsg);
         dispatch({ type: "SET_ADDITIONAL_CONTEXT", text: extractedText });
         dispatch({ type: "SET_STEP", step: "generating" });
         await delay(300);
@@ -1017,7 +1100,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         image: imageData,
       };
       dispatch({ type: "ADD_MESSAGE", message: userMsg });
-      persistMessage(userMsg);
+      await persistMessage(userMsg);
       dispatch({ type: "SET_IMAGE", image: imageData });
 
       // Check if user has provided text along with image
@@ -1036,7 +1119,7 @@ const App: React.FC<AppProps> = (props: AppProps) => {
           questions.slideCount.allowOther
         );
         dispatch({ type: "ADD_MESSAGE", message: slideCountMsg });
-        persistMessage(slideCountMsg);
+        await persistMessage(slideCountMsg);
       } else {
         // Image only: analyze and ask follow-up questions
         dispatch({ type: "SET_STEP", step: "image_analysis" });
@@ -1070,12 +1153,12 @@ const App: React.FC<AppProps> = (props: AppProps) => {
             true
           );
           dispatch({ type: "ADD_MESSAGE", message: analysisMsg });
-          persistMessage(analysisMsg);
+          await persistMessage(analysisMsg);
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Failed to analyze image";
           const errorMsg = makeAssistantMessage(`Sorry, something went wrong: ${message}. Please try again.`);
           dispatch({ type: "ADD_MESSAGE", message: errorMsg });
-          persistMessage(errorMsg);
+          await persistMessage(errorMsg);
           dispatch({ type: "SET_STEP", step: "initial" });
         } finally {
           setIsTyping(false);
@@ -1085,22 +1168,18 @@ const App: React.FC<AppProps> = (props: AppProps) => {
     [state.userPrompt, persistMessage]
   );
 
-  const handleReset = useCallback(() => {
-    handleNewConversation();
-  }, [handleNewConversation]);
-
   const handleThemeChange = useCallback((theme: SlideTheme) => {
     // Map SlideTheme to Tone (they're compatible)
     dispatch({ type: "SET_TONE", tone: theme as Tone });
   }, []);
 
   const handleInsertSlide = async (slide: GeneratedSlide) => {
-    await createSlide({ title: slide.title, bullets: slide.bullets, theme: state.tone as SlideTheme });
+    await createSlide({ title: slide.title, bullets: slide.bullets, sources: slide.sources, theme: state.tone as SlideTheme });
   };
 
   const handleInsertAll = async () => {
     for (const slide of slides) {
-      await createSlide({ title: slide.title, bullets: slide.bullets, theme: state.tone as SlideTheme });
+      await createSlide({ title: slide.title, bullets: slide.bullets, sources: slide.sources, theme: state.tone as SlideTheme });
     }
   };
 
@@ -1147,18 +1226,6 @@ const App: React.FC<AppProps> = (props: AppProps) => {
         onInsertAll={handleInsertAll}
         selectedValues={selectedValues}
       />
-      {state.step === "complete" && (
-        <div className={styles.resetRow}>
-          <Button
-            appearance="subtle"
-            icon={<ArrowReset24Regular />}
-            onClick={handleReset}
-            size="small"
-          >
-            Start Over
-          </Button>
-        </div>
-      )}
       <ChatInput
         onSend={(text) => handleSend(text)}
         onFileUpload={handleFileUpload}
